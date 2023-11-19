@@ -61,7 +61,7 @@ func (l *HLayerLinear) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	xr, xc := l.x.Dims()
 	db := mat.NewVecDense(wr, nil)
 	dw := mat.NewDense(wr, wc, nil)
-	for j := 0; j < wc; j++ {
+	for j := 0; j < xc; j++ {
 		db.AddVec(db, dy.ColView(j))
 	}
 	dw.Mul(dy, l.x.T())

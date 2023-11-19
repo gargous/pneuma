@@ -13,57 +13,88 @@ type nnSample struct {
 	y *mat.VecDense
 }
 
-func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
-	prime := []int{
-		2, 3, 5, 7, 11, 13, 17, 19, 23,
+func floorTen(v float64) float64 {
+	ret := 1.0
+	for {
+		v /= 10
+		ret *= 10
+		if v < 1 {
+			break
+		}
 	}
-	noPrim := []int{
-		1, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22,
+	return ret
+}
+
+func primeFac(v int) int {
+	ret := 0
+	for i := 2; i < v; {
+		if v%i == 0 {
+			ret++
+			v /= i
+		} else {
+			i++
+		}
+	}
+	return ret
+}
+
+func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
+	prime := []int{2, 3, 5, 7, 11}
+	noPrim := []int{4, 6, 8, 9, 10}
+	noPrimFac := []int{}
+	for _, v := range noPrim {
+		noPrimFac = append(noPrimFac, primeFac(v))
 	}
 	scnt := len(trainSamp) + len(testSamp)
 	m := scnt * 100
-	n := 29
-	grad := 0.0
-	for i := 9; i < m; i++ {
-		sqrtn := int(math.Sqrt(float64(n)))
-		j := 0
-		primed := false
-		for ; j < len(prime); j++ {
+	grad := 100000.0
+	for i := 12; i < m; i++ {
+		sqrtn := int(math.Sqrt(float64(i)))
+		primed := true
+		for j := 0; j < len(prime); j++ {
 			if prime[j] > sqrtn {
-				primed = true
+				break
+			}
+			if i%prime[j] == 0 {
+				primed = false
 				break
 			}
 		}
 		if primed {
 			lastPrime := prime[len(prime)-1]
-			prime = append(prime, n)
-			noPrim = append(noPrim, lastPrime+1+rand.Intn(n-lastPrime-1))
+			prime = append(prime, i)
+			noPrimv := lastPrime + 1 + rand.Intn(i-lastPrime-1)
+			noPrim = append(noPrim, noPrimv)
+			noPrimFac = append(noPrimFac, primeFac(noPrimv))
 		}
-		n += 2
-		grad = float64(n)
 		if len(prime) > scnt && len(noPrim) > scnt {
 			break
 		}
 	}
-	minCnt := int(math.Min(float64(len(prime)), float64(len(noPrim))))
+	minCnt := int(math.Min(float64(scnt), math.Min(float64(len(prime)), float64(len(noPrim)))))
+	grad = floorTen(float64(prime[minCnt-1]))
 	testidx := 0
 	trainidx := 0
+	gradF := floorTen(float64(noPrimFac[minCnt-1]))
 	for _, i := range rand.Perm(minCnt) {
+		pring := floorTen(float64(prime[i])) / grad
 		prinv := float64(prime[i]) / grad
+		noPrinvg := floorTen(float64(noPrim[i])) / grad
 		noPrinv := float64(noPrim[i]) / grad
+		noPrinvf := float64(noPrimFac[i]) / gradF
 		if testidx < len(testSamp) {
-			testSamp[testidx] = nnSample{mat.NewVecDense(1, []float64{prinv}), lables[0]}
-			testSamp[testidx+1] = nnSample{mat.NewVecDense(1, []float64{noPrinv}), lables[1]}
+			testSamp[testidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
+			testSamp[testidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
 			testidx += 2
 		} else {
 			if trainidx < len(trainSamp) {
-				trainSamp[trainidx] = nnSample{mat.NewVecDense(1, []float64{prinv}), lables[0]}
-				trainSamp[trainidx+1] = nnSample{mat.NewVecDense(1, []float64{noPrinv}), lables[1]}
+				trainSamp[trainidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
+				trainSamp[trainidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
 				trainidx += 2
 			}
 		}
 	}
-	fmt.Println("makePrimeSample done", n, len(prime), len(noPrim))
+	fmt.Println("makePrimeSample done", len(prime), len(noPrim), grad, gradF)
 }
 
 func makeBTZeroSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {

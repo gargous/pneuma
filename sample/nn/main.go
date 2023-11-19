@@ -36,18 +36,20 @@ func randSample(trainSamp, testSamp []nnSample) (trainSampi []nnSample, testx, t
 }
 
 func main() {
-	batch := 50
+	batch := 100
 	trainSamp := make([]nnSample, 100000)
 	testSamp := make([]nnSample, 2000)
 	lables := []*mat.VecDense{mat.NewVecDense(2, []float64{1, 0}), mat.NewVecDense(2, []float64{0, 1})}
-	//makeRGBASample(trainSamp, testSamp, lables)
-	makeBTZeroSample(trainSamp, testSamp, lables)
+	makeRGBASample(trainSamp, testSamp, lables)
+	//makeBTZeroSample(trainSamp, testSamp, lables)
 	//makePrimeSample(trainSamp, testSamp, lables)
 	trainSamp, testx, testy, valix, valiy := randSample(trainSamp, testSamp)
 	m := nn.NewStdModel(
-		[]int{trainSamp[0].x.Len(), 10, 10, 2},
+		//[]int{trainSamp[0].x.Len(), 10, 10, 2},
+		[]int{trainSamp[0].x.Len(), 16, 10, 2},
 		func(r, c int) (opt nn.IOptimizer, layer []nn.IHLayer) {
 			opt = nn.NewOptMomentum(0.01, 0.1)
+			//opt = nn.NewOptMomentum(0.01, 0.1)
 			//opt = nn.NewOptNormal(0.01)
 			layer = []nn.IHLayer{
 				nn.NewHLayerBatchNorm(r, 0.0001, 0.9),
@@ -67,6 +69,8 @@ func main() {
 	items := make(map[string][]float64)
 	itemses := make([]map[string][]float64, 16)
 	itemsesShow := map[int]bool{0: true, 1: true}
+	samplingRate := 50
+	samplingFreq := len(trainSamp) / batch / samplingRate
 	for e := 0; e < len(itemses); e++ {
 		itemses[e] = make(map[string][]float64)
 		var trainTimesE int
@@ -85,7 +89,7 @@ func main() {
 			if m.IsDone() {
 				break
 			}
-			if trainTimesE%(batch/2) == 0 && itemsesShow[e] {
+			if trainTimesE%samplingFreq == 0 && itemsesShow[e] {
 				itemses[e]["acc_vali"] = append(itemses[e]["acc_vali"], m.Test(valix, valiy))
 				itemses[e]["acc_test"] = append(itemses[e]["acc_test"], m.Test(testx, testy))
 				itemses[e]["loss"] = append(itemses[e]["loss"], m.LossLatest())
