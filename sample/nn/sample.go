@@ -20,53 +20,50 @@ func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
 	noPrim := []int{
 		1, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 22,
 	}
-	m := (len(trainSamp) + len(testSamp)) * 2
+	scnt := len(trainSamp) + len(testSamp)
+	m := scnt * 100
 	n := 29
+	grad := 0.0
 	for i := 9; i < m; i++ {
 		sqrtn := int(math.Sqrt(float64(n)))
 		j := 0
+		primed := false
 		for ; j < len(prime); j++ {
 			if prime[j] > sqrtn {
-				prime = append(prime, n)
+				primed = true
 				break
 			}
-			if n%int(prime[j]) == 0 {
-				noPrim = append(noPrim, n)
-				break
-			}
+		}
+		if primed {
+			lastPrime := prime[len(prime)-1]
+			prime = append(prime, n)
+			noPrim = append(noPrim, lastPrime+1+rand.Intn(n-lastPrime-1))
 		}
 		n += 2
-	}
-	rate := float64(len(trainSamp)) / float64(len(trainSamp)+len(testSamp))
-	pri := 0
-	upri := 0
-	tri := 0
-	tei := 0
-	grad := 1000000.0
-	for ; pri < int(rate*float64(len(prime))); pri++ {
-		if len(trainSamp)/2 <= tri {
+		grad = float64(n)
+		if len(prime) > scnt && len(noPrim) > scnt {
 			break
 		}
-		trainSamp[tri] = nnSample{mat.NewVecDense(1, []float64{float64(prime[pri]) / grad}), lables[0]}
-		tri++
 	}
-	for ; pri < len(prime); pri++ {
-		if len(testSamp)/2 <= tei {
-			break
+	minCnt := int(math.Min(float64(len(prime)), float64(len(noPrim))))
+	testidx := 0
+	trainidx := 0
+	for _, i := range rand.Perm(minCnt) {
+		prinv := float64(prime[i]) / grad
+		noPrinv := float64(noPrim[i]) / grad
+		if testidx < len(testSamp) {
+			testSamp[testidx] = nnSample{mat.NewVecDense(1, []float64{prinv}), lables[0]}
+			testSamp[testidx+1] = nnSample{mat.NewVecDense(1, []float64{noPrinv}), lables[1]}
+			testidx += 2
+		} else {
+			if trainidx < len(trainSamp) {
+				trainSamp[trainidx] = nnSample{mat.NewVecDense(1, []float64{prinv}), lables[0]}
+				trainSamp[trainidx+1] = nnSample{mat.NewVecDense(1, []float64{noPrinv}), lables[1]}
+				trainidx += 2
+			}
 		}
-		testSamp[tei] = nnSample{mat.NewVecDense(1, []float64{float64(prime[pri]) / grad}), lables[0]}
-		tei++
 	}
-	for i := tri; i < len(trainSamp); i++ {
-		trainSamp[i] = nnSample{mat.NewVecDense(1, []float64{float64(noPrim[upri]) / grad}), lables[1]}
-		upri++
-
-	}
-	for i := tei; i < len(testSamp); i++ {
-		testSamp[i] = nnSample{mat.NewVecDense(1, []float64{float64(noPrim[upri]) / grad}), lables[1]}
-		upri++
-	}
-	fmt.Println("makePrimeSample done", n)
+	fmt.Println("makePrimeSample done", n, len(prime), len(noPrim))
 }
 
 func makeBTZeroSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {

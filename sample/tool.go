@@ -1,7 +1,6 @@
 package sample
 
 import (
-	"math/rand"
 	"os"
 	"strconv"
 
@@ -9,20 +8,6 @@ import (
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"github.com/go-echarts/go-echarts/v2/types"
 )
-
-func RandPerm(n int) []int {
-	v := make([]int, n)
-	for i := 0; i < n; i++ {
-		v[i] = i
-	}
-	for i := 0; i < n; i++ {
-		index := rand.Intn(n)
-		oldV := v[index]
-		v[index] = v[i]
-		v[i] = oldV
-	}
-	return v
-}
 
 func LineChart(title string, datas map[string][]float64) {
 	// create a new line instance

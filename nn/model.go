@@ -90,6 +90,13 @@ func (m *Model) LossMean() float64 {
 	return stat.Mean(m.loss.losses, nil)
 }
 
+func (m *Model) LossLatest() float64 {
+	if len(m.loss.losses) <= 0 {
+		return 0
+	}
+	return m.loss.losses[len(m.loss.losses)-1]
+}
+
 func (m *Model) IsDone() bool {
 	return m.loss.isDone()
 }

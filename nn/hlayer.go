@@ -10,9 +10,15 @@ import (
 
 type IHLayer interface {
 	Forward(x *mat.Dense) (y *mat.Dense)
-	Predict(x *mat.Dense) (y *mat.Dense)
 	Backward(dy *mat.Dense) (dx *mat.Dense)
+}
+
+type IHLayerOptimizer interface {
 	Optimize() (datas, deltas []mat.Matrix)
+}
+
+type IHLayerPredictor interface {
+	Predict(x *mat.Dense) (y *mat.Dense)
 }
 
 type HLayerLinear struct {
@@ -37,8 +43,9 @@ func NewHLayerLinear(r, c int) *HLayerLinear {
 }
 
 func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
-	r, c := x.Dims()
-	y = mat.NewDense(l.b.Len(), c, nil)
+	_, c := x.Dims()
+	r := l.b.Len()
+	y = mat.NewDense(r, c, nil)
 	y.Mul(l.w, x)
 	for j := 0; j < c; j++ {
 		yCol := mat.NewVecDense(r, nil)
@@ -47,10 +54,6 @@ func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
 	}
 	l.x = x
 	return
-}
-
-func (l *HLayerLinear) Predict(x *mat.Dense) (y *mat.Dense) {
-	return l.Forward(x)
 }
 
 func (l *HLayerLinear) Backward(dy *mat.Dense) (dx *mat.Dense) {
@@ -243,10 +246,6 @@ func (l *HLayerSigmoid) Forward(x *mat.Dense) (y *mat.Dense) {
 	return
 }
 
-func (l *HLayerSigmoid) Predict(x *mat.Dense) (y *mat.Dense) {
-	return l.Forward(x)
-}
-
 func (l *HLayerSigmoid) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	r, c := dy.Dims()
 	one := mat.NewDense(r, c, nil)
@@ -255,9 +254,36 @@ func (l *HLayerSigmoid) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	oneSubY.Sub(one, l.y)
 	dx = oneSubY
 	dx.MulElem(l.y, oneSubY)
+	dx.MulElem(dx, dy)
 	return
 }
 
-func (l *HLayerSigmoid) Optimize() (datas, deltas []mat.Matrix) {
+type HLayerRelu struct {
+	phi *mat.Dense
+}
+
+func NewHLayerRelu() *HLayerRelu {
+	return &HLayerRelu{}
+}
+
+func (l *HLayerRelu) Forward(x *mat.Dense) (y *mat.Dense) {
+	r, c := x.Dims()
+	phi := mat.NewDense(r, c, nil)
+	phi.Apply(func(i, j int, v float64) float64 {
+		if v > 0 {
+			return 1
+		}
+		return 0
+	}, x)
+	l.phi = phi
+	y = mat.NewDense(r, c, nil)
+	y.MulElem(phi, x)
+	return
+}
+
+func (l *HLayerRelu) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	r, c := dy.Dims()
+	dx = mat.NewDense(r, c, nil)
+	dx.MulElem(l.phi, dy)
 	return
 }

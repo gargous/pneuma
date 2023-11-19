@@ -12,6 +12,12 @@ type OptNormal struct {
 	lr float64
 }
 
+func NewOptNormal(lr float64) *OptNormal {
+	return &OptNormal{
+		lr: lr,
+	}
+}
+
 func rangeOptimize(datas, deltas []mat.Matrix, vec func(i int, x, dx *mat.VecDense), dense func(i int, x, dx *mat.Dense)) {
 	for i := 0; i < len(datas); i++ {
 		x := datas[i]

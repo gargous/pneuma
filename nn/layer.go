@@ -18,7 +18,12 @@ func (l *layer) forward(a *mat.Dense) *mat.Dense {
 
 func (l *layer) predict(a *mat.Dense) *mat.Dense {
 	for i := 0; i < len(l.hlayers); i++ {
-		a = l.hlayers[i].Predict(a)
+		predictor, isPredictor := l.hlayers[i].(IHLayerPredictor)
+		if isPredictor {
+			a = predictor.Predict(a)
+		} else {
+			a = l.hlayers[i].Forward(a)
+		}
 	}
 	return a
 }
@@ -34,7 +39,11 @@ func (l *layer) update() {
 	var optDatas []mat.Matrix
 	var optDeltas []mat.Matrix
 	for i := 0; i < len(l.hlayers); i++ {
-		optData, optDelta := l.hlayers[i].Optimize()
+		opt, isOpt := l.hlayers[i].(IHLayerOptimizer)
+		if !isOpt {
+			continue
+		}
+		optData, optDelta := opt.Optimize()
 		optDatas = append(optDatas, optData...)
 		optDeltas = append(optDeltas, optDelta...)
 	}
