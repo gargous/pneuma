@@ -49,7 +49,7 @@ func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
 	return
 }
 
-func (l *HLayerLinear) Predic(x *mat.Dense) (y *mat.Dense) {
+func (l *HLayerLinear) Predict(x *mat.Dense) (y *mat.Dense) {
 	return l.Forward(x)
 }
 
@@ -159,7 +159,7 @@ func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	return
 }
 
-func (l *HLayerBatchNorm) Predic(x *mat.Dense) (y *mat.Dense) {
+func (l *HLayerBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
 	e := l.e
 	v := l.v
@@ -243,7 +243,7 @@ func (l *HLayerSigmoid) Forward(x *mat.Dense) (y *mat.Dense) {
 	return
 }
 
-func (l *HLayerSigmoid) Predic(x *mat.Dense) (y *mat.Dense) {
+func (l *HLayerSigmoid) Predict(x *mat.Dense) (y *mat.Dense) {
 	return l.Forward(x)
 }
 

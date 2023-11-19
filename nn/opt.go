@@ -39,9 +39,16 @@ func (opt *OptNormal) Update(datas, deltas []mat.Matrix) {
 }
 
 type OptMomentum struct {
-	lr       float64
-	v        []mat.Matrix
-	momentum float64
+	lr float64
+	v  []mat.Matrix
+	mt float64
+}
+
+func NewOptMomentum(lr, mt float64) *OptMomentum {
+	return &OptMomentum{
+		lr: lr,
+		mt: mt,
+	}
 }
 
 func (opt *OptMomentum) init(datas, deltas []mat.Matrix) {
@@ -64,13 +71,13 @@ func (opt *OptMomentum) Update(datas, deltas []mat.Matrix) {
 	rangeOptimize(datas, deltas,
 		func(i int, x, dx *mat.VecDense) {
 			v := opt.v[i].(*mat.VecDense)
-			v.ScaleVec(opt.momentum, v)
+			v.ScaleVec(opt.mt, v)
 			v.AddScaledVec(v, -opt.lr, dx)
 			x.AddVec(x, v)
 		},
 		func(i int, x, dx *mat.Dense) {
 			v := opt.v[i].(*mat.Dense)
-			v.Scale(opt.momentum, v)
+			v.Scale(opt.mt, v)
 			xr, xc := x.Dims()
 			newV := mat.NewDense(xr, xc, nil)
 			newV.Scale(opt.lr, dx)
