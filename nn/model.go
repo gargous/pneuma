@@ -6,6 +6,63 @@ import (
 	"gonum.org/v1/gonum/stat"
 )
 
+type ModelBuilder struct {
+	size      []int
+	layers    []func(r, c int) IHLayer
+	optimizer func(r, c int) IOptimizer
+	lossParam *LossParam
+	tar       ITarget
+}
+
+func NewModelBuilder() *ModelBuilder {
+	return &ModelBuilder{}
+}
+
+func (m *ModelBuilder) Size(size ...int) {
+	m.size = size
+}
+
+func (m *ModelBuilder) Layer(layer func() IHLayer) {
+	m.layers = append(m.layers, func(r, c int) IHLayer { return layer() })
+}
+
+func (m *ModelBuilder) LayerAt(layer func(r, c int) IHLayer) {
+	m.layers = append(m.layers, layer)
+}
+
+func (m *ModelBuilder) Optimizer(opt func() IOptimizer) {
+	m.optimizer = func(r, c int) IOptimizer { return opt() }
+}
+
+func (m *ModelBuilder) OptimizerAt(opt func(r, c int) IOptimizer) {
+	m.optimizer = opt
+}
+
+func (m *ModelBuilder) Target(tar ITarget, param *LossParam) {
+	m.lossParam = param
+	m.tar = tar
+}
+
+func (m *ModelBuilder) Build() *Model {
+	model := NewModel()
+	for i := 0; i < len(m.size)-1; i++ {
+		c := m.size[i]
+		r := m.size[i+1]
+
+		opt := m.optimizer(r, c)
+		hlayers := []IHLayer{NewHLayerLinear(r, c)}
+		for _, hlayer := range m.layers {
+			hlayers = append(hlayers, hlayer(r, c))
+		}
+		model.AddLayer(
+			opt,
+			hlayers...,
+		)
+	}
+	model.SetTarget(m.tar, m.lossParam)
+	return model
+}
+
 type Model struct {
 	layers []*layer
 	loss   *loss
@@ -15,8 +72,7 @@ func NewModel() *Model {
 	return &Model{}
 }
 
-func NewStdModel(size []int, layers func(r, c int) (IOptimizer, []IHLayer)) *Model {
-	m := &Model{}
+func (m *Model) BuildStd(size []int, layers func(r, c int) (IOptimizer, []IHLayer), tar ITarget, lossParam *LossParam) {
 	for i := 0; i < len(size)-1; i++ {
 		c := size[i]
 		r := size[i+1]
@@ -28,7 +84,7 @@ func NewStdModel(size []int, layers func(r, c int) (IOptimizer, []IHLayer)) *Mod
 			hlayers...,
 		)
 	}
-	return m
+	m.SetTarget(tar, lossParam)
 }
 
 func (m *Model) SetTarget(tar ITarget, param *LossParam) {
@@ -99,4 +155,31 @@ func (m *Model) LossLatest() float64 {
 
 func (m *Model) IsDone() bool {
 	return m.loss.isDone()
+}
+
+type EpochRet struct {
+	ValiAcc, TestAcc, Loss float64
+}
+
+func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense, testRate float64) (retInfo EpochRet, testInfo []EpochRet) {
+	sampFreq := int(float64(len(trainX)) / testRate)
+	var trainTimes int
+	for i := 0; i < len(trainX); i++ {
+		x, y := trainX[i], trainY[i]
+		m.Train(x, y)
+		if m.IsDone() {
+			break
+		}
+		if testRate > 0 && trainTimes%sampFreq == 0 {
+			oneInfo := EpochRet{m.Test(validX, validY), m.Test(testX, testY), m.LossLatest()}
+			testInfo = append(testInfo, oneInfo)
+		}
+		trainTimes++
+	}
+	valiAcc := m.Test(validX, validY)
+	testAcc := m.Test(testX, testY)
+	loss := m.LossMean()
+	m.LossDrop()
+	retInfo = EpochRet{valiAcc, testAcc, loss}
+	return
 }
