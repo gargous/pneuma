@@ -42,7 +42,7 @@ func main() {
 	lables := []*mat.VecDense{mat.NewVecDense(2, []float64{1, 0}), mat.NewVecDense(2, []float64{0, 1})}
 	makeRGBASample(trainSamp, testSamp, lables)
 	//makeBTZeroSample(trainSamp, testSamp, lables)
-	//makePrimeSample(trainSamp, testSamp, lables)
+	//makePrimeSample(trainSamp, testSamp, lables, true)
 	trainSamp, testx, testy, valix, valiy := randSample(trainSamp, testSamp)
 	var trainx []*mat.Dense
 	var trainy []*mat.Dense
@@ -68,34 +68,41 @@ func main() {
 	builder.LayerAt(func(r, c int) nn.IHLayer { return nn.NewHLayerBatchNorm(r, 0.0001, 0.9) })
 	//builder.Layer(func() nn.IHLayer { return nn.NewHLayerRelu() })
 	builder.Layer(func() nn.IHLayer { return nn.NewHLayerSigmoid() })
-	builder.Target(nn.NewTarCE(), &nn.LossParam{
-		Threshold: 0.01,
-		MinLoss:   0.01,
-		MinTimes:  1000,
+	builder.Target(func() (nn.ITarget, *nn.LossParam) {
+		return nn.NewTarCE(), &nn.LossParam{
+			Threshold: 0.01,
+			MinLoss:   0.01,
+			MinTimes:  1000,
+		}
 	})
 
 	m := builder.Build()
+	nn.NewIniSAE(m).Init(trainx)
+
 	items := make(map[string][]float64)
 	itemses := make([]map[string][]float64, 16)
 	itemsesShow := map[int]bool{0: true, 1: true}
-	samplingRate := 5.0
+	samplingRate := 100.0
 
 	for e := 0; e < len(itemses); e++ {
 		itemses[e] = make(map[string][]float64)
 		testRate := samplingRate
+		var retInfo nn.EpochRet
 		if !itemsesShow[e] {
-			testRate = 0
-		}
-		retInfo, testInfos := m.TrainEpoch(trainx, trainy, testx, testy, valix, valiy, testRate)
-		for _, testInfo := range testInfos {
-			itemses[e]["acc_vali"] = append(itemses[e]["acc_vali"], testInfo.ValiAcc)
-			itemses[e]["acc_test"] = append(itemses[e]["acc_test"], testInfo.TestAcc)
-			itemses[e]["loss"] = append(itemses[e]["loss"], testInfo.Loss)
+			retInfo = m.TrainEpoch(trainx, trainy, testx, testy, valix, valiy)
+		} else {
+			var testInfos []nn.EpochRet
+			retInfo, testInfos = m.TrainEpochSampTest(trainx, trainy, testx, testy, valix, valiy, testRate)
+			for _, testInfo := range testInfos {
+				itemses[e]["acc_vali"] = append(itemses[e]["acc_vali"], testInfo.ValiAcc)
+				itemses[e]["acc_test"] = append(itemses[e]["acc_test"], testInfo.TestAcc)
+				itemses[e]["loss"] = append(itemses[e]["loss"], testInfo.Loss)
+			}
 		}
 		fmt.Printf("train at:%d, %+v\n", e, retInfo)
-		itemses[e]["acc_vali"] = append(itemses[e]["acc_vali"], retInfo.ValiAcc)
-		itemses[e]["acc_test"] = append(itemses[e]["acc_test"], retInfo.TestAcc)
-		itemses[e]["loss"] = append(itemses[e]["loss"], retInfo.Loss)
+		items["acc_vali"] = append(items["acc_vali"], retInfo.ValiAcc)
+		items["acc_test"] = append(items["acc_test"], retInfo.TestAcc)
+		items["loss"] = append(items["loss"], retInfo.Loss)
 		m.LossDrop()
 	}
 	sample.LineChart("nn", items)

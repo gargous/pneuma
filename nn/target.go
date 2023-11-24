@@ -11,6 +11,20 @@ type ITarget interface {
 	Backward() (dy *mat.Dense)
 }
 
+func CopyITarget(src ITarget) ITarget {
+	switch srcR := src.(type) {
+	case *TargetMSE:
+		dst := &TargetMSE{}
+		dst.Copy(srcR)
+		return dst
+	case *TargetCE:
+		dst := &TargetCE{}
+		dst.Copy(srcR)
+		return dst
+	}
+	return nil
+}
+
 type LossParam struct {
 	Threshold float64
 	MinLoss   float64
@@ -21,6 +35,13 @@ type loss struct {
 	losses []float64
 	target ITarget
 	param  *LossParam
+}
+
+func (l *loss) copy(src *loss) {
+	l.param = &LossParam{}
+	*l.param = *src.param
+	copy(l.losses, src.losses)
+	l.target = CopyITarget(src.target)
 }
 
 func (l *loss) check(pred, targ *mat.Dense) bool {
@@ -57,6 +78,13 @@ func NewTarMSE() *TargetMSE {
 	return &TargetMSE{}
 }
 
+func (t *TargetMSE) Copy(src *TargetMSE) {
+	if src.sub != nil {
+		t.sub = &mat.Dense{}
+		t.sub.CloneFrom(src.sub)
+	}
+}
+
 func (t *TargetMSE) Loss(pred, targ *mat.Dense) (y float64) {
 	r, c := pred.Dims()
 	sub := mat.NewDense(r, c, nil)
@@ -82,6 +110,15 @@ type TargetCE struct {
 
 func NewTarCE() *TargetMSE {
 	return &TargetMSE{}
+}
+
+func (t *TargetCE) Copy(src *TargetCE) {
+	if src.softmax != nil {
+		t.softmax = &mat.Dense{}
+		t.softmax.CloneFrom(src.softmax)
+		t.target = &mat.Dense{}
+		t.target.CloneFrom(src.target)
+	}
 }
 
 func (t *TargetCE) Loss(pred, targ *mat.Dense) (y float64) {

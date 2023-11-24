@@ -38,7 +38,7 @@ func primeFac(v int) int {
 	return ret
 }
 
-func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
+func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense, withFac bool) {
 	prime := []int{2, 3, 5, 7, 11}
 	noPrim := []int{4, 6, 8, 9, 10}
 	noPrimFac := []int{}
@@ -65,7 +65,9 @@ func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
 			prime = append(prime, i)
 			noPrimv := lastPrime + 1 + rand.Intn(i-lastPrime-1)
 			noPrim = append(noPrim, noPrimv)
-			noPrimFac = append(noPrimFac, primeFac(noPrimv))
+			if withFac {
+				noPrimFac = append(noPrimFac, primeFac(noPrimv))
+			}
 		}
 		if len(prime) > scnt && len(noPrim) > scnt {
 			break
@@ -75,26 +77,41 @@ func makePrimeSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {
 	grad = floorTen(float64(prime[minCnt-1]))
 	testidx := 0
 	trainidx := 0
-	gradF := floorTen(float64(noPrimFac[minCnt-1]))
 	for _, i := range rand.Perm(minCnt) {
 		pring := floorTen(float64(prime[i])) / grad
 		prinv := float64(prime[i]) / grad
 		noPrinvg := floorTen(float64(noPrim[i])) / grad
 		noPrinv := float64(noPrim[i]) / grad
-		noPrinvf := float64(noPrimFac[i]) / gradF
-		if testidx < len(testSamp) {
-			testSamp[testidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
-			testSamp[testidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
-			testidx += 2
+		if withFac {
+			gradF := floorTen(float64(noPrimFac[minCnt-1]))
+			noPrinvf := float64(noPrimFac[i]) / gradF
+			if testidx < len(testSamp) {
+				testSamp[testidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
+				testSamp[testidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
+				testidx += 2
+			} else {
+				if trainidx < len(trainSamp) {
+					trainSamp[trainidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
+					trainSamp[trainidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
+					trainidx += 2
+				}
+			}
 		} else {
-			if trainidx < len(trainSamp) {
-				trainSamp[trainidx] = nnSample{mat.NewVecDense(3, []float64{prinv, pring, 0}), lables[0]}
-				trainSamp[trainidx+1] = nnSample{mat.NewVecDense(3, []float64{noPrinv, noPrinvg, noPrinvf}), lables[1]}
-				trainidx += 2
+			if testidx < len(testSamp) {
+				testSamp[testidx] = nnSample{mat.NewVecDense(2, []float64{prinv, pring}), lables[0]}
+				testSamp[testidx+1] = nnSample{mat.NewVecDense(2, []float64{noPrinv, noPrinvg}), lables[1]}
+				testidx += 2
+			} else {
+				if trainidx < len(trainSamp) {
+					trainSamp[trainidx] = nnSample{mat.NewVecDense(2, []float64{prinv, pring}), lables[0]}
+					trainSamp[trainidx+1] = nnSample{mat.NewVecDense(2, []float64{noPrinv, noPrinvg}), lables[1]}
+					trainidx += 2
+				}
 			}
 		}
+
 	}
-	fmt.Println("makePrimeSample done", len(prime), len(noPrim), grad, gradF)
+	fmt.Println("makePrimeSample done", len(prime), len(noPrim), grad)
 }
 
 func makeBTZeroSample(trainSamp, testSamp []nnSample, lables []*mat.VecDense) {

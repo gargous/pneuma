@@ -14,11 +14,18 @@ type IHLayer interface {
 }
 
 type IHLayerOptimizer interface {
+	IHLayer
 	Optimize() (datas, deltas []mat.Matrix)
 }
 
 type IHLayerPredictor interface {
+	IHLayer
 	Predict(x *mat.Dense) (y *mat.Dense)
+}
+
+type IHLayerReshape interface {
+	IHLayer
+	ReshapeAsNew(r, c int)
 }
 
 type HLayerLinear struct {
@@ -29,8 +36,47 @@ type HLayerLinear struct {
 	x  *mat.Dense
 }
 
+func CopyIHLayer(src IHLayer) IHLayer {
+	switch srcR := src.(type) {
+	case *HLayerLinear:
+		dst := &HLayerLinear{}
+		dst.Copy(srcR)
+		return dst
+	case *HLayerBatchNorm:
+		dst := &HLayerBatchNorm{}
+		dst.Copy(srcR)
+		return dst
+	case *HLayerSigmoid:
+		dst := &HLayerSigmoid{}
+		dst.Copy(srcR)
+		return dst
+	case *HLayerRelu:
+		dst := &HLayerRelu{}
+		dst.Copy(srcR)
+		return dst
+	}
+	return nil
+}
+
 func NewHLayerLinear(r, c int) *HLayerLinear {
 	l := &HLayerLinear{}
+	l.ReshapeAsNew(r, c)
+	return l
+}
+
+func (l *HLayerLinear) Copy(src *HLayerLinear) {
+	l.w = mat.DenseCopyOf(src.w)
+	l.b = mat.VecDenseCopyOf(src.b)
+	if src.dw != nil {
+		l.dw = mat.DenseCopyOf(src.dw)
+		l.db = mat.VecDenseCopyOf(src.db)
+	}
+	if src.x != nil {
+		l.x = mat.DenseCopyOf(src.x)
+	}
+}
+
+func (l *HLayerLinear) ReshapeAsNew(r, c int) {
 	l.w = mat.NewDense(r, c, nil)
 	l.b = mat.NewVecDense(r, nil)
 	for i := 0; i < r; i++ {
@@ -39,7 +85,9 @@ func NewHLayerLinear(r, c int) *HLayerLinear {
 		}
 		l.b.SetVec(i, rand.Float64())
 	}
-	return l
+	l.db = nil
+	l.dw = nil
+	l.x = nil
 }
 
 func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -97,14 +145,27 @@ type HLayerBatchNorm struct {
 
 func NewHLayerBatchNorm(r int, minstd, momentum float64) *HLayerBatchNorm {
 	l := &HLayerBatchNorm{}
-	l.e = mat.NewVecDense(r, nil)
-	l.v = mat.NewVecDense(r, nil)
-	l.g = mat.NewVecDense(r, nil)
-	floats.AddConst(1, l.g.RawVector().Data)
-	l.b = mat.NewVecDense(r, nil)
+	l.ReshapeAsNew(r, 0)
 	l.minstd = minstd
 	l.momentum = momentum
 	return l
+}
+
+func (l *HLayerBatchNorm) Copy(src *HLayerBatchNorm) {
+	l.e = mat.VecDenseCopyOf(src.e)
+	l.v = mat.VecDenseCopyOf(src.v)
+	l.g = mat.VecDenseCopyOf(src.g)
+	l.b = mat.VecDenseCopyOf(src.b)
+	l.minstd = src.minstd
+	l.momentum = src.momentum
+	if src.dg != nil {
+		l.dg = mat.VecDenseCopyOf(src.dg)
+		l.db = mat.VecDenseCopyOf(src.db)
+	}
+	if src.sinverse != nil {
+		l.xhat = mat.DenseCopyOf(src.xhat)
+		l.sinverse = mat.VecDenseCopyOf(src.sinverse)
+	}
 }
 
 func (l *HLayerBatchNorm) forward(x, xsube *mat.Dense, e, v *mat.VecDense) (y, xhat *mat.Dense, sinverse *mat.VecDense) {
@@ -127,6 +188,18 @@ func (l *HLayerBatchNorm) forward(x, xsube *mat.Dense, e, v *mat.VecDense) (y, x
 		y.SetCol(j, yCol.RawVector().Data)
 	}
 	return
+}
+
+func (l *HLayerBatchNorm) ReshapeAsNew(r, c int) {
+	l.e = mat.NewVecDense(r, nil)
+	l.v = mat.NewVecDense(r, nil)
+	l.g = mat.NewVecDense(r, nil)
+	floats.AddConst(1, l.g.RawVector().Data)
+	l.b = mat.NewVecDense(r, nil)
+	l.db = nil
+	l.dg = nil
+	l.xhat = nil
+	l.sinverse = nil
 }
 
 func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -229,11 +302,18 @@ func (l *HLayerBatchNorm) Optimize() (datas, deltas []mat.Matrix) {
 }
 
 type HLayerSigmoid struct {
-	y mat.Matrix
+	y *mat.Dense
 }
 
 func NewHLayerSigmoid() *HLayerSigmoid {
 	return &HLayerSigmoid{}
+}
+
+func (l *HLayerSigmoid) Copy(src *HLayerSigmoid) {
+	if src.y != nil {
+		l.y = &mat.Dense{}
+		l.y.CloneFrom(src.y)
+	}
 }
 
 func (l *HLayerSigmoid) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -264,6 +344,13 @@ type HLayerRelu struct {
 
 func NewHLayerRelu() *HLayerRelu {
 	return &HLayerRelu{}
+}
+
+func (l *HLayerRelu) Copy(src *HLayerRelu) {
+	if src.phi != nil {
+		l.phi = &mat.Dense{}
+		l.phi.CloneFrom(src.phi)
+	}
 }
 
 func (l *HLayerRelu) Forward(x *mat.Dense) (y *mat.Dense) {

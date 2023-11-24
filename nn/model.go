@@ -10,8 +10,7 @@ type ModelBuilder struct {
 	size      []int
 	layers    []func(r, c int) IHLayer
 	optimizer func(r, c int) IOptimizer
-	lossParam *LossParam
-	tar       ITarget
+	tar       func() (ITarget, *LossParam)
 }
 
 func NewModelBuilder() *ModelBuilder {
@@ -38,8 +37,7 @@ func (m *ModelBuilder) OptimizerAt(opt func(r, c int) IOptimizer) {
 	m.optimizer = opt
 }
 
-func (m *ModelBuilder) Target(tar ITarget, param *LossParam) {
-	m.lossParam = param
+func (m *ModelBuilder) Target(tar func() (ITarget, *LossParam)) {
 	m.tar = tar
 }
 
@@ -59,7 +57,7 @@ func (m *ModelBuilder) Build() *Model {
 			hlayers...,
 		)
 	}
-	model.SetTarget(m.tar, m.lossParam)
+	model.SetTarget(m.tar())
 	return model
 }
 
@@ -72,19 +70,14 @@ func NewModel() *Model {
 	return &Model{}
 }
 
-func (m *Model) BuildStd(size []int, layers func(r, c int) (IOptimizer, []IHLayer), tar ITarget, lossParam *LossParam) {
-	for i := 0; i < len(size)-1; i++ {
-		c := size[i]
-		r := size[i+1]
-		opt, hlayers := layers(r, c)
-		linear := NewHLayerLinear(r, c)
-		hlayers = append([]IHLayer{linear}, hlayers...)
-		m.AddLayer(
-			opt,
-			hlayers...,
-		)
+func (m *Model) Copy(src *Model) {
+	m.layers = make([]*layer, len(src.layers))
+	for k, l := range src.layers {
+		m.layers[k] = &layer{}
+		m.layers[k].copy(l)
 	}
-	m.SetTarget(tar, lossParam)
+	m.loss = &loss{}
+	m.loss.copy(src.loss)
 }
 
 func (m *Model) SetTarget(tar ITarget, param *LossParam) {
@@ -161,7 +154,28 @@ type EpochRet struct {
 	ValiAcc, TestAcc, Loss float64
 }
 
-func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense, testRate float64) (retInfo EpochRet, testInfo []EpochRet) {
+func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense) (retInfo EpochRet) {
+	for i := 0; i < len(trainX); i++ {
+		x, y := trainX[i], trainY[i]
+		m.Train(x, y)
+		if m.IsDone() {
+			break
+		}
+	}
+	retInfo = EpochRet{}
+	if testX != nil {
+		retInfo.TestAcc = m.Test(testX, testY)
+	}
+	if validX != nil {
+		retInfo.ValiAcc = m.Test(validX, validY)
+	}
+	loss := m.LossMean()
+	m.LossDrop()
+	retInfo.Loss = loss
+	return
+}
+
+func (m *Model) TrainEpochSampTest(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense, testRate float64) (retInfo EpochRet, testInfo []EpochRet) {
 	sampFreq := int(float64(len(trainX)) / testRate)
 	var trainTimes int
 	for i := 0; i < len(trainX); i++ {
