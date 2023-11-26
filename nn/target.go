@@ -31,6 +31,14 @@ type LossParam struct {
 	MinTimes  int
 }
 
+func NewLossParam() *LossParam {
+	return &LossParam{
+		Threshold: 0.01,
+		MinLoss:   0.01,
+		MinTimes:  1000,
+	}
+}
+
 type loss struct {
 	losses []float64
 	target ITarget

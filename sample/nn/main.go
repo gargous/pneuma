@@ -35,17 +35,7 @@ func randSample(trainSamp, testSamp []nnSample) (trainSampi []nnSample, testx, t
 	return
 }
 
-func main() {
-	batch := 100
-	trainSamp := make([]nnSample, 100000)
-	testSamp := make([]nnSample, 2000)
-	lables := []*mat.VecDense{mat.NewVecDense(2, []float64{1, 0}), mat.NewVecDense(2, []float64{0, 1})}
-	makeRGBASample(trainSamp, testSamp, lables)
-	//makeBTZeroSample(trainSamp, testSamp, lables)
-	//makePrimeSample(trainSamp, testSamp, lables, true)
-	trainSamp, testx, testy, valix, valiy := randSample(trainSamp, testSamp)
-	var trainx []*mat.Dense
-	var trainy []*mat.Dense
+func stackSample(trainSamp []nnSample, batch int) (trainx, trainy []*mat.Dense) {
 	for i := 0; i < len(trainSamp); i += batch {
 		xrow := trainSamp[i].x.Len()
 		yrow := trainSamp[i].y.Len()
@@ -60,6 +50,23 @@ func main() {
 		trainx = append(trainx, x)
 		trainy = append(trainy, y)
 	}
+	return
+}
+
+func main() {
+	epoch := 16
+	batch := 100
+	samplingRate := 100.0
+	lineChartChild := 2
+	trainSamp := make([]nnSample, 100000)
+	testSamp := make([]nnSample, 2000)
+	lables := []*mat.VecDense{mat.NewVecDense(2, []float64{1, 0}), mat.NewVecDense(2, []float64{0, 1})}
+	makeRGBASample(trainSamp, testSamp, lables)
+	//makeBTZeroSample(trainSamp, testSamp, lables)
+	//makePrimeSample(trainSamp, testSamp, lables, true)
+	trainSamp, testx, testy, valix, valiy := randSample(trainSamp, testSamp)
+	trainx, trainy := stackSample(trainSamp, batch)
+
 	builder := nn.NewModelBuilder()
 	//builder.Size(trainSamp[0].x.Len(), 10, 10, 2)
 	builder.Size(trainSamp[0].x.Len(), 16, 10, 2)
@@ -68,45 +75,26 @@ func main() {
 	builder.LayerAt(func(r, c int) nn.IHLayer { return nn.NewHLayerBatchNorm(r, 0.0001, 0.9) })
 	//builder.Layer(func() nn.IHLayer { return nn.NewHLayerRelu() })
 	builder.Layer(func() nn.IHLayer { return nn.NewHLayerSigmoid() })
-	builder.Target(func() (nn.ITarget, *nn.LossParam) {
-		return nn.NewTarCE(), &nn.LossParam{
-			Threshold: 0.01,
-			MinLoss:   0.01,
-			MinTimes:  1000,
-		}
-	})
+	builder.Target(func() nn.ITarget { return nn.NewTarCE() })
 
 	m := builder.Build()
 	nn.NewIniSAE(m).Init(trainx)
 
-	items := make(map[string][]float64)
-	itemses := make([]map[string][]float64, 16)
-	itemsesShow := map[int]bool{0: true, 1: true}
-	samplingRate := 100.0
-
-	for e := 0; e < len(itemses); e++ {
-		itemses[e] = make(map[string][]float64)
-		testRate := samplingRate
-		var retInfo nn.EpochRet
-		if !itemsesShow[e] {
-			retInfo = m.TrainEpoch(trainx, trainy, testx, testy, valix, valiy)
+	lineChart := sample.NewLineChart("nn")
+	lineChart.Reg("acc_vali", "acc_test", "loss")
+	for e := 0; e < epoch; e++ {
+		if e >= lineChartChild {
+			m.TrainEpoch(trainx, trainy)
 		} else {
-			var testInfos []nn.EpochRet
-			retInfo, testInfos = m.TrainEpochSampTest(trainx, trainy, testx, testy, valix, valiy, testRate)
-			for _, testInfo := range testInfos {
-				itemses[e]["acc_vali"] = append(itemses[e]["acc_vali"], testInfo.ValiAcc)
-				itemses[e]["acc_test"] = append(itemses[e]["acc_test"], testInfo.TestAcc)
-				itemses[e]["loss"] = append(itemses[e]["loss"], testInfo.Loss)
-			}
+			sampFreq := int(float64(len(trainx)) / samplingRate)
+			m.TrainEpochTimes(trainx, trainy, func(trainTimes int) {
+				if trainTimes%sampFreq == 0 {
+					lineChart.Child(e).Append(m.Test(valix, valiy), m.Test(testx, testy), m.LossLatest())
+				}
+			})
 		}
-		fmt.Printf("train at:%d, %+v\n", e, retInfo)
-		items["acc_vali"] = append(items["acc_vali"], retInfo.ValiAcc)
-		items["acc_test"] = append(items["acc_test"], retInfo.TestAcc)
-		items["loss"] = append(items["loss"], retInfo.Loss)
-		m.LossDrop()
+		lineChart.Append(m.Test(valix, valiy), m.Test(testx, testy), m.LossPopMean())
+		fmt.Printf("train at:%d, %s\n", e, lineChart.Format(lineChart.Len()-1))
 	}
-	sample.LineChart("nn", items)
-	for k := range itemsesShow {
-		sample.LineChart(fmt.Sprintf("nn%d", k), itemses[k])
-	}
+	lineChart.Draw()
 }

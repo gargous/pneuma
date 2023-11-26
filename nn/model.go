@@ -10,7 +10,7 @@ type ModelBuilder struct {
 	size      []int
 	layers    []func(r, c int) IHLayer
 	optimizer func(r, c int) IOptimizer
-	tar       func() (ITarget, *LossParam)
+	tar       func() ITarget
 }
 
 func NewModelBuilder() *ModelBuilder {
@@ -37,7 +37,7 @@ func (m *ModelBuilder) OptimizerAt(opt func(r, c int) IOptimizer) {
 	m.optimizer = opt
 }
 
-func (m *ModelBuilder) Target(tar func() (ITarget, *LossParam)) {
+func (m *ModelBuilder) Target(tar func() ITarget) {
 	m.tar = tar
 }
 
@@ -57,7 +57,7 @@ func (m *ModelBuilder) Build() *Model {
 			hlayers...,
 		)
 	}
-	model.SetTarget(m.tar())
+	model.SetTarget(m.tar(), NewLossParam())
 	return model
 }
 
@@ -131,8 +131,10 @@ func (m *Model) Test(x, y *mat.Dense) float64 {
 	return cnt / float64(batch)
 }
 
-func (m *Model) LossDrop() {
+func (m *Model) LossPopMean() float64 {
+	mean := stat.Mean(m.loss.losses, nil)
 	m.loss.losses = nil
+	return mean
 }
 
 func (m *Model) LossMean() float64 {
@@ -150,33 +152,11 @@ func (m *Model) IsDone() bool {
 	return m.loss.isDone()
 }
 
-type EpochRet struct {
-	ValiAcc, TestAcc, Loss float64
+func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense) {
+	m.TrainEpochTimes(trainX, trainY, nil)
 }
 
-func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense) (retInfo EpochRet) {
-	for i := 0; i < len(trainX); i++ {
-		x, y := trainX[i], trainY[i]
-		m.Train(x, y)
-		if m.IsDone() {
-			break
-		}
-	}
-	retInfo = EpochRet{}
-	if testX != nil {
-		retInfo.TestAcc = m.Test(testX, testY)
-	}
-	if validX != nil {
-		retInfo.ValiAcc = m.Test(validX, validY)
-	}
-	loss := m.LossMean()
-	m.LossDrop()
-	retInfo.Loss = loss
-	return
-}
-
-func (m *Model) TrainEpochSampTest(trainX, trainY []*mat.Dense, testX, testY, validX, validY *mat.Dense, testRate float64) (retInfo EpochRet, testInfo []EpochRet) {
-	sampFreq := int(float64(len(trainX)) / testRate)
+func (m *Model) TrainEpochTimes(trainX, trainY []*mat.Dense, oneTimes func(int)) {
 	var trainTimes int
 	for i := 0; i < len(trainX); i++ {
 		x, y := trainX[i], trainY[i]
@@ -184,16 +164,9 @@ func (m *Model) TrainEpochSampTest(trainX, trainY []*mat.Dense, testX, testY, va
 		if m.IsDone() {
 			break
 		}
-		if testRate > 0 && trainTimes%sampFreq == 0 {
-			oneInfo := EpochRet{m.Test(validX, validY), m.Test(testX, testY), m.LossLatest()}
-			testInfo = append(testInfo, oneInfo)
+		if oneTimes != nil {
+			oneTimes(trainTimes)
+			trainTimes++
 		}
-		trainTimes++
 	}
-	valiAcc := m.Test(validX, validY)
-	testAcc := m.Test(testX, testY)
-	loss := m.LossMean()
-	m.LossDrop()
-	retInfo = EpochRet{valiAcc, testAcc, loss}
-	return
 }
