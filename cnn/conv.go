@@ -8,13 +8,14 @@ func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
 	}
 	slip = (size - core) / stride
 	nopadSize := slip*stride + core
-	slip = slip + 1
+	slip += 1
 	if nopadSize == size {
 		return
 	}
 	p := 0
 	if padding {
 		p = nopadSize + stride - size
+		slip += 1
 	} else {
 		p = nopadSize - size
 	}

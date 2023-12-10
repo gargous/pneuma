@@ -4,24 +4,6 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-type IOptimizer interface {
-	Update(datas, deltas []mat.Matrix)
-}
-
-func CopyIOptimizer(src IOptimizer) IOptimizer {
-	switch srcR := src.(type) {
-	case *OptNormal:
-		dst := &OptNormal{}
-		dst.Copy(srcR)
-		return dst
-	case *OptMomentum:
-		dst := &OptMomentum{}
-		dst.Copy(srcR)
-		return dst
-	}
-	return nil
-}
-
 type OptNormal struct {
 	lr float64
 }

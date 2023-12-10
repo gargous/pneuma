@@ -8,26 +8,6 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-type IHLayer interface {
-	Forward(x *mat.Dense) (y *mat.Dense)
-	Backward(dy *mat.Dense) (dx *mat.Dense)
-}
-
-type IHLayerOptimizer interface {
-	IHLayer
-	Optimize() (datas, deltas []mat.Matrix)
-}
-
-type IHLayerPredictor interface {
-	IHLayer
-	Predict(x *mat.Dense) (y *mat.Dense)
-}
-
-type IHLayerReshape interface {
-	IHLayer
-	ReshapeAsNew(r, c int)
-}
-
 type HLayerLinear struct {
 	w  *mat.Dense
 	b  *mat.VecDense
@@ -36,31 +16,16 @@ type HLayerLinear struct {
 	x  *mat.Dense
 }
 
-func CopyIHLayer(src IHLayer) IHLayer {
-	switch srcR := src.(type) {
-	case *HLayerLinear:
-		dst := &HLayerLinear{}
-		dst.Copy(srcR)
-		return dst
-	case *HLayerBatchNorm:
-		dst := &HLayerBatchNorm{}
-		dst.Copy(srcR)
-		return dst
-	case *HLayerSigmoid:
-		dst := &HLayerSigmoid{}
-		dst.Copy(srcR)
-		return dst
-	case *HLayerRelu:
-		dst := &HLayerRelu{}
-		dst.Copy(srcR)
-		return dst
-	}
-	return nil
-}
-
 func NewHLayerLinear(r, c int) *HLayerLinear {
 	l := &HLayerLinear{}
-	l.ReshapeAsNew(r, c)
+	l.w = mat.NewDense(r, c, nil)
+	l.b = mat.NewVecDense(r, nil)
+	for i := 0; i < r; i++ {
+		for j := 0; j < c; j++ {
+			l.w.Set(i, j, rand.Float64())
+		}
+		l.b.SetVec(i, rand.Float64())
+	}
 	return l
 }
 
@@ -76,18 +41,8 @@ func (l *HLayerLinear) Copy(src *HLayerLinear) {
 	}
 }
 
-func (l *HLayerLinear) ReshapeAsNew(r, c int) {
-	l.w = mat.NewDense(r, c, nil)
-	l.b = mat.NewVecDense(r, nil)
-	for i := 0; i < r; i++ {
-		for j := 0; j < c; j++ {
-			l.w.Set(i, j, rand.Float64())
-		}
-		l.b.SetVec(i, rand.Float64())
-	}
-	l.db = nil
-	l.dw = nil
-	l.x = nil
+func (l *HLayerLinear) Dims() (r, c int) {
+	return l.w.Dims()
 }
 
 func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -143,9 +98,8 @@ type HLayerBatchNorm struct {
 	momentum float64
 }
 
-func NewHLayerBatchNorm(r int, minstd, momentum float64) *HLayerBatchNorm {
+func NewHLayerBatchNorm(minstd, momentum float64) *HLayerBatchNorm {
 	l := &HLayerBatchNorm{}
-	l.ReshapeAsNew(r, 0)
 	l.minstd = minstd
 	l.momentum = momentum
 	return l
@@ -190,20 +144,21 @@ func (l *HLayerBatchNorm) forward(x, xsube *mat.Dense, e, v *mat.VecDense) (y, x
 	return
 }
 
-func (l *HLayerBatchNorm) ReshapeAsNew(r, c int) {
+func (l *HLayerBatchNorm) initOnData(x *mat.Dense) {
+	if l.e != nil {
+		return
+	}
+	r, _ := x.Dims()
 	l.e = mat.NewVecDense(r, nil)
 	l.v = mat.NewVecDense(r, nil)
 	l.g = mat.NewVecDense(r, nil)
 	floats.AddConst(1, l.g.RawVector().Data)
 	l.b = mat.NewVecDense(r, nil)
-	l.db = nil
-	l.dg = nil
-	l.xhat = nil
-	l.sinverse = nil
 }
 
 func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
+	l.initOnData(x)
 
 	e := mat.NewVecDense(r, nil)
 	v := mat.NewVecDense(r, nil)

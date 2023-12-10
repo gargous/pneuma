@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"pneuma/common"
+	"pneuma/dnn"
 	"pneuma/nn"
 	"pneuma/sample"
 
@@ -67,20 +69,20 @@ func main() {
 	trainSamp, testx, testy, valix, valiy := randSample(trainSamp, testSamp)
 	trainx, trainy := stackSample(trainSamp, batch)
 
-	builder := nn.NewModelBuilder()
+	builder := dnn.NewModelBuilder()
 	//builder.Size(trainSamp[0].x.Len(), 10, 10, 2)
 	builder.Size(trainSamp[0].x.Len(), 16, 10, 2)
 	//builder.Optimizer(func() nn.IOptimizer { return nn.NewOptNormal(0.01) })
-	builder.Optimizer(func() nn.IOptimizer { return nn.NewOptMomentum(0.01, 0.1) })
-	builder.LayerAt(func(r, c int) nn.IHLayer { return nn.NewHLayerBatchNorm(r, 0.0001, 0.9) })
+	builder.Optimizer(func() common.IOptimizer { return nn.NewOptMomentum(0.01, 0.1) })
+	builder.Layer(func() common.IHLayer { return nn.NewHLayerBatchNorm(0.0001, 0.9) })
 	//builder.Layer(func() nn.IHLayer { return nn.NewHLayerRelu() })
-	builder.Layer(func() nn.IHLayer { return nn.NewHLayerSigmoid() })
-	builder.Target(func() nn.ITarget { return nn.NewTarCE() })
+	builder.Layer(func() common.IHLayer { return nn.NewHLayerSigmoid() })
+	builder.Target(func() common.ITarget { return nn.NewTarCE() })
 
 	m := builder.Build()
 	nn.NewIniSAE(m).Init(trainx)
 
-	lineChart := sample.NewLineChart("nn")
+	lineChart := sample.NewLineChart("dnn")
 	lineChart.Reg("acc_vali", "acc_test", "loss")
 	for e := 0; e < epoch; e++ {
 		if e >= lineChartChild {

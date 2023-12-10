@@ -1,65 +1,12 @@
 package nn
 
 import (
+	"pneuma/common"
+
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
 )
-
-type ModelBuilder struct {
-	size      []int
-	layers    []func(r, c int) IHLayer
-	optimizer func(r, c int) IOptimizer
-	tar       func() ITarget
-}
-
-func NewModelBuilder() *ModelBuilder {
-	return &ModelBuilder{}
-}
-
-func (m *ModelBuilder) Size(size ...int) {
-	m.size = size
-}
-
-func (m *ModelBuilder) Layer(layer func() IHLayer) {
-	m.layers = append(m.layers, func(r, c int) IHLayer { return layer() })
-}
-
-func (m *ModelBuilder) LayerAt(layer func(r, c int) IHLayer) {
-	m.layers = append(m.layers, layer)
-}
-
-func (m *ModelBuilder) Optimizer(opt func() IOptimizer) {
-	m.optimizer = func(r, c int) IOptimizer { return opt() }
-}
-
-func (m *ModelBuilder) OptimizerAt(opt func(r, c int) IOptimizer) {
-	m.optimizer = opt
-}
-
-func (m *ModelBuilder) Target(tar func() ITarget) {
-	m.tar = tar
-}
-
-func (m *ModelBuilder) Build() *Model {
-	model := NewModel()
-	for i := 0; i < len(m.size)-1; i++ {
-		c := m.size[i]
-		r := m.size[i+1]
-
-		opt := m.optimizer(r, c)
-		hlayers := []IHLayer{NewHLayerLinear(r, c)}
-		for _, hlayer := range m.layers {
-			hlayers = append(hlayers, hlayer(r, c))
-		}
-		model.AddLayer(
-			opt,
-			hlayers...,
-		)
-	}
-	model.SetTarget(m.tar(), NewLossParam())
-	return model
-}
 
 type Model struct {
 	layers []*layer
@@ -80,18 +27,42 @@ func (m *Model) Copy(src *Model) {
 	m.loss.copy(src.loss)
 }
 
-func (m *Model) SetTarget(tar ITarget, param *LossParam) {
+func (m *Model) SetTarget(tar common.ITarget, param *LossParam) {
 	m.loss = &loss{
 		target: tar,
 		param:  param,
 	}
 }
 
-func (m *Model) AddLayer(opt IOptimizer, layers ...IHLayer) {
+func (m *Model) Target() (tar common.ITarget, param *LossParam) {
+	tar = m.loss.target
+	param = m.loss.param
+	return
+}
+
+func (m *Model) AddLayer(opt common.IOptimizer, layers ...common.IHLayer) {
 	m.layers = append(m.layers, &layer{
 		optimizer: opt,
 		hlayers:   layers,
 	})
+}
+
+func (m *Model) LayerCnt() int {
+	return len(m.layers)
+}
+
+func (m *Model) Layer(idx int) (opt common.IOptimizer, layers []common.IHLayer) {
+	layer := m.layers[idx]
+	opt = layer.optimizer
+	layers = layer.hlayers
+	return
+}
+
+func (m *Model) SetLayer(idx int, opt common.IOptimizer, layers ...common.IHLayer) {
+	m.layers[idx] = &layer{
+		optimizer: opt,
+		hlayers:   layers,
+	}
 }
 
 func (m *Model) Train(x, y *mat.Dense) {

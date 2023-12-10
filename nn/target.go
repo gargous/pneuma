@@ -2,28 +2,10 @@ package nn
 
 import (
 	"math"
+	"pneuma/common"
 
 	"gonum.org/v1/gonum/mat"
 )
-
-type ITarget interface {
-	Loss(pred, targ *mat.Dense) (y float64)
-	Backward() (dy *mat.Dense)
-}
-
-func CopyITarget(src ITarget) ITarget {
-	switch srcR := src.(type) {
-	case *TargetMSE:
-		dst := &TargetMSE{}
-		dst.Copy(srcR)
-		return dst
-	case *TargetCE:
-		dst := &TargetCE{}
-		dst.Copy(srcR)
-		return dst
-	}
-	return nil
-}
 
 type LossParam struct {
 	Threshold float64
@@ -39,9 +21,15 @@ func NewLossParam() *LossParam {
 	}
 }
 
+func (l *LossParam) Copy(src *LossParam) {
+	l.Threshold = src.Threshold
+	l.MinLoss = src.MinLoss
+	l.MinTimes = src.MinTimes
+}
+
 type loss struct {
 	losses []float64
-	target ITarget
+	target common.ITarget
 	param  *LossParam
 }
 
@@ -49,7 +37,7 @@ func (l *loss) copy(src *loss) {
 	l.param = &LossParam{}
 	*l.param = *src.param
 	copy(l.losses, src.losses)
-	l.target = CopyITarget(src.target)
+	l.target = common.CopyITarget(src.target)
 }
 
 func (l *loss) check(pred, targ *mat.Dense) bool {

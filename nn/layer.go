@@ -1,40 +1,25 @@
 package nn
 
 import (
+	"pneuma/common"
+
 	"gonum.org/v1/gonum/mat"
 )
 
 type layer struct {
-	hlayers   []IHLayer
+	hlayers   []common.IHLayer
 	ret       *mat.Dense
-	optimizer IOptimizer
+	optimizer common.IOptimizer
 }
 
 func (l *layer) copy(src *layer) {
-	l.optimizer = CopyIOptimizer(src.optimizer)
-	l.hlayers = make([]IHLayer, len(src.hlayers))
+	l.optimizer = common.CopyIOptimizer(src.optimizer)
+	l.hlayers = make([]common.IHLayer, len(src.hlayers))
 	if src.ret != nil {
 		l.ret = mat.DenseCopyOf(src.ret)
 	}
 	for k, srcHL := range src.hlayers {
-		l.hlayers[k] = CopyIHLayer(srcHL)
-	}
-}
-
-func (l *layer) linearHLayer() *HLayerLinear {
-	for i := 0; i < len(l.hlayers); i++ {
-		if hl, ok := l.hlayers[i].(*HLayerLinear); ok {
-			return hl
-		}
-	}
-	return nil
-}
-
-func (l *layer) reshapeAsNew(r, c int) {
-	for i := 0; i < len(l.hlayers); i++ {
-		if resh, ok := l.hlayers[i].(IHLayerReshape); ok {
-			resh.ReshapeAsNew(r, c)
-		}
+		l.hlayers[k] = common.CopyIHLayer(srcHL)
 	}
 }
 
@@ -48,7 +33,7 @@ func (l *layer) forward(a *mat.Dense) *mat.Dense {
 
 func (l *layer) predict(a *mat.Dense) *mat.Dense {
 	for i := 0; i < len(l.hlayers); i++ {
-		predictor, isPredictor := l.hlayers[i].(IHLayerPredictor)
+		predictor, isPredictor := l.hlayers[i].(common.IHLayerPredictor)
 		if isPredictor {
 			a = predictor.Predict(a)
 		} else {
@@ -69,7 +54,7 @@ func (l *layer) update() {
 	var optDatas []mat.Matrix
 	var optDeltas []mat.Matrix
 	for i := 0; i < len(l.hlayers); i++ {
-		opt, isOpt := l.hlayers[i].(IHLayerOptimizer)
+		opt, isOpt := l.hlayers[i].(common.IHLayerOptimizer)
 		if !isOpt {
 			continue
 		}

@@ -1,36 +1,48 @@
 package nn
 
 import (
+	"pneuma/common"
+
 	"gonum.org/v1/gonum/mat"
 )
 
-type IniStrategy interface {
-	Init(trainX []*mat.Dense)
-}
-
-type iniSAE struct {
+type IniSAE struct {
 	saeMods []*Model
 }
 
-func NewIniSAE(m *Model) IniStrategy {
-	ini := &iniSAE{}
-	ini.saeMods = make([]*Model, len(m.layers)-1)
-	for i := 0; i < len(m.layers)-1; i++ {
-		saeM := &Model{}
-		saeM.Copy(m)
-		oneLayer := saeM.layers[i]
-		saeM.layers = make([]*layer, 2)
-		saeM.layers[0] = oneLayer
-		saeM.layers[1] = &layer{}
-		saeM.layers[1].copy(oneLayer)
-		r, c := saeM.layers[1].linearHLayer().w.Dims()
-		saeM.layers[1].reshapeAsNew(c, r)
+func NewIniSAE(m *Model) *IniSAE {
+	ini := &IniSAE{}
+	ini.saeMods = make([]*Model, m.LayerCnt()-1)
+	for i := 0; i < m.LayerCnt()-1; i++ {
+		opt, hlayers := m.Layer(i)
+		tar, param := m.Target()
+
+		saeM := NewModel()
+
+		newParam := &LossParam{}
+		newParam.Copy(param)
+		saeM.SetTarget(common.CopyITarget(tar), newParam)
+
+		hls0 := make([]common.IHLayer, len(hlayers))
+		for j := 0; j < len(hlayers); j++ {
+			hls0[j] = common.CopyIHLayer(hlayers[j])
+		}
+		saeM.AddLayer(common.CopyIOptimizer(opt), hls0...)
+		hls1 := make([]common.IHLayer, len(hlayers))
+		for j := 0; j < len(hlayers); j++ {
+			hls1[j] = common.CopyIHLayer(hlayers[j])
+			if linear, isLinear := hls1[j].(*HLayerLinear); isLinear {
+				r, c := linear.Dims()
+				hls1[j] = NewHLayerLinear(r, c)
+			}
+		}
+		saeM.AddLayer(common.CopyIOptimizer(opt), hls1...)
 		ini.saeMods[i] = saeM
 	}
 	return ini
 }
 
-func (ini *iniSAE) Init(trainX []*mat.Dense) {
+func (ini *IniSAE) Init(trainX []*mat.Dense) {
 	for _, m := range ini.saeMods {
 		var xs []*mat.Dense
 		for i := 0; i < len(trainX); i++ {
