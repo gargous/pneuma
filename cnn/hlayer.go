@@ -23,30 +23,31 @@ type HLayerConv struct {
 }
 
 func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
+	coreCnt := core[0]
+	inptCnt := inputSize[0]
 	dim := len(inputSize)
 	ret := &HLayerConv{
 		inptSize:     inputSize,
-		coreSize:     core[:dim-1],
-		stride:       stride[:dim-1],
-		paddingLeft:  make([]int, dim-1),
-		paddingRight: make([]int, dim-1),
-		fitSize:      make([]int, dim-1),
+		coreSize:     append([]int{inptCnt}, core[1:]...),
+		stride:       append([]int{inptCnt}, stride...),
+		paddingLeft:  make([]int, dim),
+		paddingRight: make([]int, dim),
+		fitSize:      make([]int, dim),
 		ouptSize:     make([]int, dim),
 	}
-	slips := make([]int, dim-1)
-	for i := 0; i < dim-1; i++ {
+	slips := make([]int, dim)
+	for i := 0; i < dim; i++ {
 		iinp := inputSize[i]
-		icor := core[i]
-		istr := stride[i]
+		icor := ret.coreSize[i]
+		istr := ret.stride[i]
 		pl, pr, slip := paddingCnt(iinp, icor, istr, padding)
 		ret.paddingLeft[i], ret.paddingRight[i] = pl, pr
 		slips[i] = slip
 	}
-	coreCnt := core[dim-1]
 	ret.b = mat.NewDense(intsProd(slips), coreCnt, nil)
-	ret.w = mat.NewDense(intsProd(append(ret.coreSize, inputSize[dim-1])), coreCnt, nil)
-	ret.ouptSize = append(slips, coreCnt)
-	for i := 0; i < dim-1; i++ {
+	ret.w = mat.NewDense(intsProd(ret.coreSize), coreCnt, nil)
+	ret.ouptSize = append([]int{coreCnt}, slips[1:]...)
+	for i := 0; i < dim; i++ {
 		ret.fitSize[i] = (ret.paddingLeft[i] + inputSize[i] + ret.paddingRight[i])
 	}
 	ret.w.Apply(func(i, j int, v float64) float64 {
@@ -58,21 +59,32 @@ func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
 	return ret
 }
 
-func (l *HLayerConv) slipBuild(data []float64) *mat.Dense {
-	orgSize := l.inptSize[:len(l.inptSize)-1]
+func (l *HLayerConv) slipBuild(data *mat.VecDense) *mat.Dense {
+	orgSize := l.inptSize
 	fitSize := l.fitSize
-	chLen := l.inptSize[len(l.inptSize)-1]
+	step := len(orgSize) - 1
 	fitData := data
 	if !intsEqual(orgSize, fitSize) {
-		fitData = make([]float64, intsProd(fitSize)*chLen)
-		recuRange(orgSize, nil, func(orgPos []int) {
-			fitPos := intsAdd(orgPos, l.paddingLeft)
-			if !sizeBound(fitPos, fitSize) {
+		fitData = mat.NewVecDense(intsProd(fitSize), nil)
+		padStep, pad := l.paddingLeft[:step], l.paddingLeft[step]
+		offset := intsMin([]int{orgSize[step], fitSize[step]})
+		orgStepSize := orgSize[:step]
+		fitStepSize := fitSize[:step]
+		recuRange(orgStepSize, nil, func(orgStepPos []int) {
+			fitStepPos := intsAdd(orgStepPos, padStep)
+			if !sizeBound(fitStepPos, fitStepSize) {
 				return
 			}
-			orgIdx := idxExpend(posIdx(orgPos, orgSize), 0, chLen)
-			fitIdx := idxExpend(posIdx(fitPos, fitSize), 0, chLen)
-			copy(fitData[fitIdx:fitIdx+chLen], data[orgIdx:orgIdx+chLen])
+			orgIdx := posIdx(append(orgStepPos, 0), orgSize)
+			fitIdx := posIdx(append(fitStepPos, 0), fitSize)
+			if pad < 0 {
+				orgIdx -= pad
+			} else {
+				fitIdx += pad
+			}
+			fitSlice := fitData.SliceVec(fitIdx, fitIdx+offset).(*mat.VecDense)
+			orgSlice := data.SliceVec(orgIdx, orgIdx+offset)
+			fitSlice.CopyVec(orgSlice)
 		})
 	}
 	slipRowLen, _ := l.w.Dims()
@@ -82,45 +94,64 @@ func (l *HLayerConv) slipBuild(data []float64) *mat.Dense {
 	recuRange(fitSize, l.stride, func(startPos []int) {
 		slipRow := slipMat.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
-		recuRange(l.coreSize, nil, func(pos []int) {
-			fitPos := intsAdd(pos, startPos)
-			fitIdx := idxExpend(posIdx(fitPos, fitSize), 0, chLen)
-			slipIdx := idxExpend(posIdx(pos, l.coreSize), 0, chLen)
-			fixRow := mat.NewVecDense(chLen, fitData[fitIdx:fitIdx+chLen])
-			slipRow.SliceVec(slipIdx, slipIdx+chLen).(*mat.VecDense).CopyVec(fixRow)
+		startStepPos := startPos[:step]
+		startStepOffset := startPos[step]
+		coreStepSize := l.coreSize[:step]
+		coreStepOffset := l.coreSize[step]
+		recuRange(coreStepSize, nil, func(coreStepPos []int) {
+			fitStepPos := intsAdd(coreStepPos, startStepPos)
+			fitIdx := posIdx(append(fitStepPos, startStepOffset), fitSize)
+			slipIdx := posIdx(append(coreStepPos, 0), l.coreSize)
+			fitRow := fitData.SliceVec(fitIdx, fitIdx+coreStepOffset)
+			slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset).(*mat.VecDense).CopyVec(fitRow)
 		})
 	})
 	return slipMat
 }
 
-func (l *HLayerConv) slipRestore(data *mat.Dense) []float64 {
-	orgSize := l.inptSize[:len(l.inptSize)-1]
+func (l *HLayerConv) slipRestore(data *mat.Dense) *mat.VecDense {
+	orgSize := l.inptSize
 	fitSize := l.fitSize
-	chLen := l.inptSize[len(l.inptSize)-1]
+	step := len(orgSize) - 1
 	slipRowIdx := 0
-	fitData := make([]float64, intsProd(fitSize)*chLen)
+	fitData := mat.NewVecDense(intsProd(fitSize), nil)
 	recuRange(fitSize, l.stride, func(startPos []int) {
 		slipRow := data.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
-		recuRange(l.coreSize, nil, func(pos []int) {
-			fitPos := intsAdd(pos, startPos)
-			fitIdx := idxExpend(posIdx(fitPos, fitSize), 0, chLen)
-			slipIdx := idxExpend(posIdx(pos, l.coreSize), 0, chLen)
-			fixRow := mat.NewVecDense(chLen, fitData[fitIdx:fitIdx+chLen])
-			fixRow.AddVec(fixRow, slipRow.SliceVec(slipIdx, slipIdx+chLen))
+		startStepPos := startPos[:step]
+		startStepOffset := startPos[step]
+		coreStepSize := l.coreSize[:step]
+		coreStepOffset := l.coreSize[step]
+		recuRange(coreStepSize, nil, func(coreStepPos []int) {
+			fitStepPos := intsAdd(coreStepPos, startStepPos)
+			fitIdx := posIdx(append(fitStepPos, startStepOffset), fitSize)
+			slipIdx := posIdx(append(coreStepPos, 0), l.coreSize)
+			fitRow := fitData.SliceVec(fitIdx, fitIdx+coreStepOffset).(*mat.VecDense)
+			fitRow.AddVec(fitRow, slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset))
 		})
 	})
 	retData := fitData
 	if !intsEqual(orgSize, fitSize) {
-		retData = make([]float64, intsProd(orgSize)*chLen)
-		recuRange(orgSize, nil, func(orgPos []int) {
-			fixPos := intsAdd(orgPos, l.paddingLeft)
-			if !sizeBound(fixPos, fitSize) {
+		retData = mat.NewVecDense(intsProd(orgSize), nil)
+		padStep, pad := l.paddingLeft[:step], l.paddingLeft[step]
+		offset := intsMin([]int{orgSize[step], fitSize[step]})
+		orgStepSize := orgSize[:step]
+		fitStepSize := fitSize[:step]
+		recuRange(orgStepSize, nil, func(orgStepPos []int) {
+			fitStepPos := intsAdd(orgStepPos, padStep)
+			if !sizeBound(fitStepPos, fitStepSize) {
 				return
 			}
-			orgIdx := idxExpend(posIdx(orgPos, orgSize), 0, chLen)
-			fitIdx := idxExpend(posIdx(fixPos, fitSize), 0, chLen)
-			copy(retData[orgIdx:orgIdx+chLen], fitData[fitIdx:fitIdx+chLen])
+			orgIdx := posIdx(append(orgStepPos, 0), orgSize)
+			fitIdx := posIdx(append(fitStepPos, 0), fitSize)
+			if pad < 0 {
+				orgIdx -= pad
+			} else {
+				fitIdx += pad
+			}
+			retSlice := retData.SliceVec(orgIdx, orgIdx+offset).(*mat.VecDense)
+			fitSlice := fitData.SliceVec(fitIdx, fitIdx+offset)
+			retSlice.CopyVec(fitSlice)
 		})
 	}
 	return retData
@@ -132,7 +163,7 @@ func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
 	y = mat.NewDense(slipCnt*coreCnt, batch, nil)
 	l.slips = make([]*mat.Dense, batch)
 	for j := 0; j < batch; j++ {
-		xColData := x.ColView(j).(*mat.VecDense).RawVector().Data
+		xColData := x.ColView(j).(*mat.VecDense)
 		yColData := y.ColView(j).(*mat.VecDense).RawVector().Data
 		slip := l.slipBuild(xColData)
 		l.slips[j] = slip
@@ -161,7 +192,7 @@ func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 		sxr, sxc := slipX.Dims()
 		slipDx := mat.NewDense(sxr, sxc, nil)
 		slipDx.Mul(slipDy, l.w.T())
-		dx.SetCol(j, l.slipRestore(slipDx))
+		dx.SetCol(j, l.slipRestore(slipDx).RawVector().Data)
 	}
 	return
 }
@@ -174,4 +205,70 @@ func (l *HLayerConv) Optimize() (datas, deltas []mat.Matrix) {
 		l.dw, l.db,
 	}
 	return
+}
+
+func (l *HLayerConv) OuptSize() []int {
+	return l.ouptSize
+}
+
+type HLayerAvePooling struct {
+	inptSize []int
+	ouptSize []int
+	coreSize []int
+}
+
+func NewHLayerAvePooling(inputSize, core []int) *HLayerAvePooling {
+	ret := &HLayerAvePooling{}
+	ret.inptSize = inputSize
+	ret.coreSize = append([]int{1}, core...)
+	ret.ouptSize = make([]int, len(inputSize))
+	ret.ouptSize[0] = inputSize[0]
+	for i := 0; i < len(inputSize)-1; i++ {
+		_, _, cnt := paddingCnt(inputSize[i+1], core[i], core[i], true)
+		ret.ouptSize[i+1] = cnt
+	}
+	return ret
+}
+
+func (l *HLayerAvePooling) Forward(x *mat.Dense) (y *mat.Dense) {
+	_, batch := x.Dims()
+	y = mat.NewDense(intsProd(l.ouptSize), batch, nil)
+	step := len(l.inptSize) - 1
+	for j := 0; j < batch; j++ {
+		onex := x.ColView(j).(*mat.VecDense)
+		oney := y.ColView(j).(*mat.VecDense)
+		recuRange(l.inptSize, l.coreSize, func(startPos []int) {
+			startPosFL := []int{startPos[0]}
+			startStepPos := startPos[1:step]
+			startStepOffset := startPos[step]
+			coreStepSize := l.coreSize[1:step]
+			coreStepOffset := l.coreSize[step]
+			stepBound := l.inptSize[step]
+			sum := 0.0
+			recuRange(coreStepSize, nil, func(coreStepPos []int) {
+				stepPos := intsAdd(coreStepPos, startStepPos)
+				if !sizeBound(stepPos, l.inptSize[1:step]) {
+					return
+				}
+				idx := posIdx(append(append(startPosFL, stepPos...), startStepOffset), l.inptSize)
+				idxEnd := idx + coreStepOffset
+				if idxEnd > stepBound {
+					idxEnd = stepBound
+				}
+				fitRow := onex.SliceVec(idx, idxEnd)
+				sum += mat.Sum(fitRow)
+			})
+			cnt := intsProd(l.coreSize[1:])
+			oney.SetVec(posIdx(startPos, l.ouptSize), sum/float64(cnt))
+		})
+	}
+	return
+}
+
+func (l *HLayerAvePooling) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	return
+}
+
+func (l *HLayerAvePooling) OuptSize() []int {
+	return l.ouptSize
 }

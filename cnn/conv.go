@@ -77,6 +77,17 @@ func intsEqual(a, b []int) bool {
 	return true
 }
 
+func intsMin(ints []int) (ret int) {
+	midx := -1
+	for idx, v := range ints {
+		if midx < 0 || ret > v {
+			ret = v
+			midx = idx
+		}
+	}
+	return
+}
+
 func intsProd(ints []int) (ret int) {
 	ret = 1
 	for _, v := range ints {
