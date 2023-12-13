@@ -1,6 +1,10 @@
 package cnn
 
-import "fmt"
+import (
+	"fmt"
+
+	"gonum.org/v1/gonum/mat"
+)
 
 func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
 	if core > size {
@@ -102,4 +106,155 @@ func intsAdd(a, b []int) []int {
 		ret[i] = a[i] + b[i]
 	}
 	return ret
+}
+
+func intsAddConst(a int, b []int) []int {
+	ret := make([]int, len(b))
+	for i := 0; i < len(b); i++ {
+		ret[i] = a + b[i]
+	}
+	return ret
+}
+
+type ConvInfo struct {
+	orgSize     []int
+	orgSizeSum  int
+	fitSize     []int
+	fitSizeSum  int
+	coreSize    []int
+	stride      []int
+	paddingLeft []int
+	slipCnt     []int
+	slipCntSum  int
+	coreSizeSum int
+}
+
+func NewConvInfo(inputSize, core, stride []int, padding bool) *ConvInfo {
+	dim := len(inputSize)
+	inpCnt := inputSize[len(inputSize)-1]
+	ret := &ConvInfo{
+		orgSize:     inputSize,
+		coreSize:    append(core, inpCnt),
+		stride:      append(stride, inpCnt),
+		paddingLeft: make([]int, dim),
+		fitSize:     make([]int, dim),
+	}
+	if len(ret.coreSize) != dim {
+		panic(fmt.Sprintf("convinfo core size dims need equals to org:%d but %d", dim, len(ret.coreSize)))
+	}
+	if len(ret.stride) != dim {
+		panic(fmt.Sprintf("convinfo stride dims need equals to org:%d but %d", dim, len(ret.stride)))
+	}
+	slips := make([]int, dim)
+	for i := 0; i < dim; i++ {
+		iinp := inputSize[i]
+		icor := ret.coreSize[i]
+		istr := ret.stride[i]
+		pl, pr, slip := paddingCnt(iinp, icor, istr, padding)
+		ret.paddingLeft[i] = pl
+		slips[i] = slip
+		ret.fitSize[i] = inputSize[i] + pl + pr
+	}
+	ret.slipCnt = slips
+	ret.fitSizeSum = intsProd(ret.fitSize)
+	ret.orgSizeSum = intsProd(ret.orgSize)
+	ret.slipCntSum = intsProd(slips)
+	ret.coreSizeSum = intsProd(ret.coreSize)
+	return ret
+}
+
+func (c *ConvInfo) slipBuild(data *mat.VecDense) *mat.Dense {
+	cnt := c.orgSize[len(c.orgSize)-1]
+	step := len(c.orgSize) - 2
+	fitData := data
+	if !intsEqual(c.orgSize, c.fitSize) {
+		fitData = mat.NewVecDense(c.fitSizeSum, nil)
+		padStep, pad := c.paddingLeft[:step], c.paddingLeft[step]
+		offset := intsMin([]int{c.orgSize[step], c.fitSize[step]}) * cnt
+		orgStepSize := c.orgSize[:step]
+		fitStepSize := c.fitSize[:step]
+		recuRange(orgStepSize, nil, func(orgStepPos []int) {
+			fitStepPos := intsAdd(orgStepPos, padStep)
+			if !sizeBound(fitStepPos, fitStepSize) {
+				return
+			}
+			orgPad, fitPad := 0, 0
+			if pad < 0 {
+				orgPad -= pad
+			} else {
+				fitPad += pad
+			}
+			orgIdx := posIdx(append(orgStepPos, orgPad, 0), c.orgSize)
+			fitIdx := posIdx(append(fitStepPos, fitPad, 0), c.fitSize)
+			fitSlice := fitData.SliceVec(fitIdx, fitIdx+offset).(*mat.VecDense)
+			orgSlice := data.SliceVec(orgIdx, orgIdx+offset)
+			fitSlice.CopyVec(orgSlice)
+		})
+	}
+	slipMat := mat.NewDense(c.slipCntSum, c.coreSizeSum, nil)
+	slipRowIdx := 0
+	recuRange(c.fitSize, c.stride, func(startPos []int) {
+		slipRow := slipMat.RowView(slipRowIdx).(*mat.VecDense)
+		slipRowIdx += 1
+		startStepPos := startPos[:step]
+		startStepOffset := startPos[step]
+		coreStepSize := c.coreSize[:step]
+		coreStepOffset := c.coreSize[step] * cnt
+		recuRange(coreStepSize, nil, func(coreStepPos []int) {
+			fitStepPos := intsAdd(coreStepPos, startStepPos)
+			fitIdx := posIdx(append(fitStepPos, startStepOffset, 0), c.fitSize)
+			slipIdx := posIdx(append(coreStepPos, 0, 0), c.coreSize)
+			fitRow := fitData.SliceVec(fitIdx, fitIdx+coreStepOffset)
+			slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset).(*mat.VecDense).CopyVec(fitRow)
+		})
+	})
+	return slipMat
+}
+
+func (c *ConvInfo) slipRestore(data *mat.Dense) *mat.VecDense {
+	cnt := c.orgSize[len(c.orgSize)-1]
+	step := len(c.orgSize) - 2
+	slipRowIdx := 0
+	fitData := mat.NewVecDense(c.fitSizeSum, nil)
+	recuRange(c.fitSize, c.stride, func(startPos []int) {
+		slipRow := data.RowView(slipRowIdx).(*mat.VecDense)
+		slipRowIdx += 1
+		startStepPos := startPos[:step]
+		startStepOffset := startPos[step]
+		coreStepSize := c.coreSize[:step]
+		coreStepOffset := c.coreSize[step] * cnt
+		recuRange(coreStepSize, nil, func(coreStepPos []int) {
+			fitStepPos := intsAdd(coreStepPos, startStepPos)
+			fitIdx := posIdx(append(fitStepPos, startStepOffset, 0), c.fitSize)
+			slipIdx := posIdx(append(coreStepPos, 0, 0), c.coreSize)
+			fitRow := fitData.SliceVec(fitIdx, fitIdx+coreStepOffset).(*mat.VecDense)
+			fitRow.AddVec(fitRow, slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset))
+		})
+	})
+	retData := fitData
+	if !intsEqual(c.orgSize, c.fitSize) {
+		retData = mat.NewVecDense(c.orgSizeSum, nil)
+		padStep, pad := c.paddingLeft[:step], c.paddingLeft[step]
+		offset := intsMin([]int{c.orgSize[step], c.fitSize[step]}) * cnt
+		orgStepSize := c.orgSize[:step]
+		fitStepSize := c.fitSize[:step]
+		recuRange(orgStepSize, nil, func(orgStepPos []int) {
+			fitStepPos := intsAdd(orgStepPos, padStep)
+			if !sizeBound(fitStepPos, fitStepSize) {
+				return
+			}
+			orgPad, fitPad := 0, 0
+			if pad < 0 {
+				orgPad -= pad
+			} else {
+				fitPad += pad
+			}
+			orgIdx := posIdx(append(orgStepPos, orgPad, 0), c.orgSize)
+			fitIdx := posIdx(append(fitStepPos, fitPad, 0), c.fitSize)
+			retSlice := retData.SliceVec(orgIdx, orgIdx+offset).(*mat.VecDense)
+			fitSlice := fitData.SliceVec(fitIdx, fitIdx+offset)
+			retSlice.CopyVec(fitSlice)
+		})
+	}
+	return retData
 }

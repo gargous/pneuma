@@ -8,33 +8,28 @@ import (
 
 func TestHLayerConv(t *testing.T) {
 	layer := NewHLayerConv(
-		[]int{2, 4, 3},
-		[]int{3, 2, 2},
+		[]int{4, 3, 2},
+		[]int{2, 2, 3},
 		[]int{2, 2},
 		true,
 	)
 	data := mat.NewVecDense(24, []float64{
-		1, 2, 3,
-		4, 5, 6,
-		7, 8, 9,
-		10, 11, 12,
-
-		13, 14, 15,
-		16, 17, 18,
-		19, 20, 21,
-		22, 23, 24,
+		1, 2, 3, 4, 5, 6,
+		7, 8, 9, 10, 11, 12,
+		13, 14, 15, 16, 17, 18,
+		19, 20, 21, 22, 23, 24,
 	})
-	slip := layer.slipBuild(data)
+	slip := layer.c.slipBuild(data)
 	tarSlip := mat.NewDense(4, 8, []float64{
-		1, 2, 4, 5, 13, 14, 16, 17,
-		3, 0, 6, 0, 15, 0, 18, 0,
-		7, 8, 10, 11, 19, 20, 22, 23,
-		9, 0, 12, 0, 21, 0, 24, 0,
+		1, 2, 3, 4, 7, 8, 9, 10,
+		5, 6, 0, 0, 11, 12, 0, 0,
+		13, 14, 15, 16, 19, 20, 21, 22,
+		17, 18, 0, 0, 23, 24, 0, 0,
 	})
 	if !mat.Equal(slip, tarSlip) {
 		t.Fatalf("slip build not right need:\n%v\nbut:\n%v\n", mat.Formatted(tarSlip), mat.Formatted(slip))
 	}
-	slipRet := layer.slipRestore(slip)
+	slipRet := layer.c.slipRestore(slip)
 	if !mat.Equal(slipRet, data) {
 		t.Fatalf("slip restore not right need:\n%v\nbut:\n%v\n", data, slipRet)
 	}
@@ -49,5 +44,39 @@ func TestHLayerConv(t *testing.T) {
 	dxr, dxc := dx.Dims()
 	if dxr != data.Len() || dxc != 1 {
 		t.Fatalf("backward not right need:r:%d,c:%d but:r:%d,c:%d\ny:\n%v\n", data.Len(), 1, dxr, dxc, mat.Formatted(dx))
+	}
+}
+
+func TestHLayerMaxPooling(t *testing.T) {
+	layer := NewHLayerMaxPooling(
+		[]int{4, 3, 2},
+		[]int{2, 2},
+		[]int{2, 2},
+		true,
+	)
+	x := mat.NewDense(24, 1, []float64{
+		1, 2, 3, 4, 5, 6,
+		7, 8, 9, 10, 11, 12,
+		13, 14, 15, 16, 17, 18,
+		19, 20, 21, 22, 23, 24,
+	})
+	y := layer.Forward(x)
+	ytar := mat.NewDense(8, 1, []float64{
+		9, 10, 11, 12,
+		21, 22, 23, 24,
+	})
+	if !mat.Equal(ytar, y) {
+		t.Fatalf("maxpooling forward wrong need:\n%v\nbut:\n%v\n", ytar, y)
+	}
+	dy := mat.NewDense(8, 1, []float64{1, 2, 3, 4, 5, 6, 7, 8})
+	dx := layer.Backward(dy)
+	dxtar := mat.NewDense(24, 1, []float64{
+		0, 0, 0, 0, 0, 0,
+		0, 0, 1, 2, 3, 4,
+		0, 0, 0, 0, 0, 0,
+		0, 0, 5, 6, 7, 8,
+	})
+	if !mat.Equal(ytar, y) {
+		t.Fatalf("maxpooling backword wrong need:\n%v\nbut:\n%v\n", dxtar, dx)
 	}
 }
