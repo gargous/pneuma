@@ -1,4 +1,4 @@
 *.html
 *.exe
 *.bmp
-**/resource
+resource/
