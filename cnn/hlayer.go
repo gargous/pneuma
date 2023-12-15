@@ -7,6 +7,10 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
+type iHLayerOupt interface {
+	OuptSize() []int
+}
+
 // w b均为展开状态，每列一个卷积核
 type HLayerConv struct {
 	c        *ConvInfo
@@ -46,12 +50,12 @@ func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
 	l.slips = make([]*mat.Dense, batch)
 	for j := 0; j < batch; j++ {
 		xCol := x.ColView(j).(*mat.VecDense)
-		yColData := y.ColView(j).(*mat.VecDense).RawVector().Data
 		slip := l.c.slipBuild(xCol)
 		l.slips[j] = slip
-		oneRet := mat.NewDense(slipCnt, coreCnt, yColData)
+		oneRet := mat.NewDense(slipCnt, coreCnt, nil)
 		oneRet.Mul(slip, l.w)
 		oneRet.Add(oneRet, l.b)
+		y.SetCol(j, oneRet.RawMatrix().Data)
 	}
 	return
 }
@@ -64,7 +68,7 @@ func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	l.db = mat.NewDense(br, bc, nil)
 	dx = mat.NewDense(l.c.orgSizeSum, batch, nil)
 	for j := 0; j < batch; j++ {
-		dyColData := dy.ColView(j).(*mat.VecDense).RawVector().Data
+		dyColData := mat.Col(nil, j, dy)
 		slipDy := mat.NewDense(br, bc, dyColData)
 		slipX := l.slips[j]
 		slipDw := mat.NewDense(wr, wc, nil)
@@ -109,7 +113,7 @@ func NewHLayerMaxPooling(inputSize, core, stride []int, padding bool) *HLayerMax
 		stride,
 		padding,
 	)
-	ret.ouptSize = append(ret.c.slipCnt, inptCnt)
+	ret.ouptSize = append(ret.c.slipCnt[:len(ret.c.slipCnt)-1], inptCnt)
 	ret.inptSize = inputSize
 	return ret
 }
@@ -148,14 +152,14 @@ func (l *HLayerMaxPooling) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	dx = mat.NewDense(l.c.orgSizeSum, batch, nil)
 	for j := 0; j < batch; j++ {
 		dxCol := dx.ColView(j).(*mat.VecDense)
-		dyCol := dy.ColView(j).(*mat.VecDense)
 		slip := l.slips[j]
-		dyColMat := mat.NewDense(l.c.slipCntSum, cnt, dyCol.RawVector().Data)
+		dyColMat := mat.NewDense(l.c.slipCntSum, cnt, nil)
 		for k := 0; k < l.c.coreSizeSum/cnt; k++ {
 			slipSlice := slip.Slice(0, l.c.slipCntSum, k*cnt, k*cnt+cnt).(*mat.Dense)
 			slipSlice.MulElem(slipSlice, dyColMat)
 		}
 		dxCol.CopyVec(l.c.slipRestore(slip))
+		dy.SetCol(j, dyColMat.RawMatrix().Data)
 	}
 	return
 }

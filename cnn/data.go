@@ -23,13 +23,13 @@ func ImgToVecData(img image.Image, channel int) ([]float64, []int) {
 			ret[idxExpend(k, idx, onecSizeLen)] = cs[k]
 		}
 	})
-	return ret, append([]int{m}, onecSize...)
+	return ret, append(onecSize, m)
 }
 
 func VecDataToImage(data []float64, size []int) image.Image {
-	m, r, c := size[0], size[1], size[2]
+	r, c, m := size[0], size[1], size[2]
 	ret := image.NewRGBA(image.Rect(0, 0, c, r))
-	onecSize := size[1:]
+	onecSize := size[:2]
 	onecSizeLen := intsProd(onecSize)
 	recuRange(onecSize, nil, func(pos []int) {
 		i, j := pos[0], pos[1]
@@ -40,9 +40,9 @@ func VecDataToImage(data []float64, size []int) image.Image {
 		}
 		switch m {
 		case 1:
-			ret.Set(j, i, color.RGBA{cs[0], cs[0], cs[0], 1})
+			ret.Set(j, i, color.Gray{cs[0]})
 		case 3:
-			ret.Set(j, i, color.RGBA{cs[0], cs[1], cs[2], 1})
+			ret.Set(j, i, color.RGBA{cs[0], cs[1], cs[2], 255})
 		case 4:
 			ret.Set(j, i, color.RGBA{cs[0], cs[1], cs[2], cs[3]})
 		}

@@ -2,6 +2,7 @@ package sample
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
@@ -9,7 +10,57 @@ import (
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
 	"github.com/go-echarts/go-echarts/v2/types"
+	"gonum.org/v1/gonum/mat"
 )
+
+type NNSample struct {
+	X *mat.VecDense
+	Y *mat.VecDense
+}
+
+func RandSample(trainSamp, testSamp []NNSample) (trainSampi []NNSample, testx, testy, valix, valiy *mat.Dense) {
+	trainSampi = make([]NNSample, len(trainSamp))
+	for i, tindex := range rand.Perm(len(trainSamp)) {
+		trainSampi[i] = trainSamp[tindex]
+	}
+	testSampi := make([]NNSample, len(testSamp))
+	for i, tindex := range rand.Perm(len(testSamp)) {
+		testSampi[i] = testSamp[tindex]
+	}
+	testSamp = testSampi
+	testx = mat.NewDense(trainSamp[0].X.Len(), len(testSamp), nil)
+	testy = mat.NewDense(trainSamp[0].Y.Len(), len(testSamp), nil)
+	valix = mat.NewDense(trainSamp[0].X.Len(), len(testSamp), nil)
+	valiy = mat.NewDense(trainSamp[0].Y.Len(), len(testSamp), nil)
+
+	for j := 0; j < testx.RawMatrix().Cols; j++ {
+		testx.SetCol(j, testSamp[j].X.RawVector().Data)
+		testy.SetCol(j, testSamp[j].Y.RawVector().Data)
+	}
+	for j := 0; j < valix.RawMatrix().Cols; j++ {
+		valix.SetCol(j, trainSampi[j].X.RawVector().Data)
+		valiy.SetCol(j, trainSampi[j].Y.RawVector().Data)
+	}
+	return
+}
+
+func StackSample(trainSamp []NNSample, batch int) (trainx, trainy []*mat.Dense) {
+	for i := 0; i < len(trainSamp); i += batch {
+		xrow := trainSamp[i].X.Len()
+		yrow := trainSamp[i].Y.Len()
+		x := mat.NewDense(xrow, batch, nil)
+		y := mat.NewDense(yrow, batch, nil)
+		for j := 0; j < batch; j++ {
+			sx := trainSamp[i+j].X.RawVector().Data
+			sy := trainSamp[i+j].Y.RawVector().Data
+			x.SetCol(j, sx)
+			y.SetCol(j, sy)
+		}
+		trainx = append(trainx, x)
+		trainy = append(trainy, y)
+	}
+	return
+}
 
 type LineChart struct {
 	title    string

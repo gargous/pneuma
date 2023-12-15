@@ -6,33 +6,18 @@ import (
 )
 
 type ModelConvBuilder struct {
-	conv   func(inpSize []int) (l common.IHLayer, oupSize []int)
-	layers []func(inpSize []int) (l common.IHLayer, oupSize []int)
+	layers []func(inpSize []int) common.IHLayer
 }
 
-func (m *ModelConvBuilder) CLayer(layer func(inpSize []int) (l common.IHLayer, oupSize []int)) {
-	m.layers = append(m.layers, func(inpSize []int) (l common.IHLayer, oupSize []int) {
-		l, oupSize = layer(inpSize)
-		if oupSize == nil {
-			oupSize = inpSize
-		}
-		return
-	})
-}
-
-func (m *ModelConvBuilder) Build(inpSize []int) (ls []common.IHLayer, oupSize []int) {
-	ls = make([]common.IHLayer, len(m.layers)+1)
-	ls[0], oupSize = m.conv(inpSize)
-	for i := 0; i < len(m.layers); i++ {
-		ls[i+1], oupSize = m.layers[i](oupSize)
-	}
-	return
+func (m *ModelConvBuilder) CLayer(layer func(inpSize []int) common.IHLayer) *ModelConvBuilder {
+	m.layers = append(m.layers, layer)
+	return m
 }
 
 type ModelBuilder struct {
 	inpSize      []int
 	fullConnSize []int
-	clayers      []func(inpSize []int) (l common.IHLayer, oupSize []int)
+	clayers      []func(inpSize []int) common.IHLayer
 	flayers      []func() common.IHLayer
 	optimizer    func() common.IOptimizer
 	tar          func() common.ITarget
@@ -47,10 +32,10 @@ func NewModelBuilder(inpSize []int) *ModelBuilder {
 
 func (m *ModelBuilder) Conv(core, stride []int, padding bool) *ModelConvBuilder {
 	cb := &ModelConvBuilder{}
-	cb.conv = func(inpSize []int) (l common.IHLayer, oupSize []int) {
-		conv := NewHLayerConv(inpSize, core, stride, padding)
-		return conv, conv.ouptSize
-	}
+	cb.layers = []func(inpSize []int) common.IHLayer{func(inpSize []int) common.IHLayer {
+		return NewHLayerConv(inpSize, core, stride, padding)
+	}}
+	m.cbuilders = append(m.cbuilders, cb)
 	return cb
 }
 
@@ -58,14 +43,8 @@ func (m *ModelBuilder) FSize(size ...int) {
 	m.fullConnSize = size
 }
 
-func (m *ModelBuilder) CLayer(layer func(inpSize []int) (l common.IHLayer, oupSize []int)) {
-	m.clayers = append(m.clayers, func(inpSize []int) (l common.IHLayer, oupSize []int) {
-		l, oupSize = layer(inpSize)
-		if oupSize == nil {
-			oupSize = inpSize
-		}
-		return
-	})
+func (m *ModelBuilder) CLayer(layer func(inpSize []int) common.IHLayer) {
+	m.clayers = append(m.clayers, layer)
 }
 
 func (m *ModelBuilder) FLayer(layer func() common.IHLayer) {
@@ -86,17 +65,18 @@ func (m *ModelBuilder) Build() *nn.Model {
 	for i := 0; i < len(m.cbuilders); i++ {
 		opt := m.optimizer()
 		cb := m.cbuilders[i]
-		cls, oupSize := cb.Build(inpSize)
-		for _, clayer := range m.clayers {
-			cl, size := clayer(oupSize)
+		var cls []common.IHLayer
+		for _, clayer := range append(cb.layers, m.clayers...) {
+			cl := clayer(inpSize)
+			if oupt, isOupt := cl.(iHLayerOupt); isOupt {
+				inpSize = oupt.OuptSize()
+			}
 			cls = append(cls, cl)
-			oupSize = size
 		}
 		model.AddLayer(
 			opt,
 			cls...,
 		)
-		inpSize = oupSize
 	}
 	m.fullConnSize = append([]int{intsProd(inpSize)}, m.fullConnSize...)
 	for i := 0; i < len(m.fullConnSize)-1; i++ {

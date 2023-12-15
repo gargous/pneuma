@@ -33,7 +33,7 @@ func NewIniSAE(m *Model) *IniSAE {
 			hls1[j] = common.CopyIHLayer(hlayers[j])
 			if linear, isLinear := hls1[j].(*HLayerLinear); isLinear {
 				r, c := linear.Dims()
-				hls1[j] = NewHLayerLinear(r, c)
+				hls1[j] = NewHLayerLinear(c, r)
 			}
 		}
 		saeM.AddLayer(common.CopyIOptimizer(opt), hls1...)

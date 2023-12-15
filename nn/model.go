@@ -82,17 +82,27 @@ func (m *Model) Train(x, y *mat.Dense) {
 	}
 }
 
-func (m *Model) Test(x, y *mat.Dense) float64 {
-	cnt := 0.0
+func (m *Model) Predict(x *mat.Dense) *mat.Dense {
 	a := x
 	for i := 0; i < len(m.layers); i++ {
 		a = m.layers[i].predict(a)
 	}
-	_, batch := y.Dims()
-	preds := a
+	return a
+}
+
+func (m *Model) Test(x, y *mat.Dense) (loss, acc float64) {
+	pred := m.Predict(x)
+	loss = m.Loss(pred, y)
+	acc = m.Acc(pred, y)
+	return
+}
+
+func (m *Model) Acc(pred, targ *mat.Dense) float64 {
+	cnt := 0.0
+	_, batch := targ.Dims()
 	for j := 0; j < batch; j++ {
-		pred := mat.Col(nil, j, preds)
-		targ := mat.Col(nil, j, y)
+		pred := mat.Col(nil, j, pred)
+		targ := mat.Col(nil, j, targ)
 		maxPredIdx := floats.MaxIdx(pred)
 		maxTargIdx := floats.MaxIdx(targ)
 		if maxPredIdx == maxTargIdx {
@@ -100,6 +110,10 @@ func (m *Model) Test(x, y *mat.Dense) float64 {
 		}
 	}
 	return cnt / float64(batch)
+}
+
+func (m *Model) Loss(pred, targ *mat.Dense) float64 {
+	return m.loss.target.Loss(pred, targ)
 }
 
 func (m *Model) LossPopMean() float64 {
@@ -132,12 +146,12 @@ func (m *Model) TrainEpochTimes(trainX, trainY []*mat.Dense, oneTimes func(int))
 	for i := 0; i < len(trainX); i++ {
 		x, y := trainX[i], trainY[i]
 		m.Train(x, y)
-		if m.IsDone() {
-			break
-		}
 		if oneTimes != nil {
 			oneTimes(trainTimes)
 			trainTimes++
+		}
+		if m.IsDone() {
+			break
 		}
 	}
 }

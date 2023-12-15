@@ -10,9 +10,8 @@ func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
 	if core > size {
 		panic(fmt.Sprintf("paddingCnt need core bigger than size, now core=%d, size=%d", core, size))
 	}
-	slip = (size - core) / stride
-	nopadSize := slip*stride + core
-	slip += 1
+	slip = (size-core)/stride + 1
+	nopadSize := (slip-1)*stride + core
 	if nopadSize == size {
 		return
 	}
@@ -116,6 +115,14 @@ func intsAddConst(a int, b []int) []int {
 	return ret
 }
 
+func intsSub(a, b []int) []int {
+	ret := make([]int, len(a))
+	for i := 0; i < len(a); i++ {
+		ret[i] = a[i] - b[i]
+	}
+	return ret
+}
+
 type ConvInfo struct {
 	orgSize     []int
 	orgSizeSum  int
@@ -140,10 +147,10 @@ func NewConvInfo(inputSize, core, stride []int, padding bool) *ConvInfo {
 		fitSize:     make([]int, dim),
 	}
 	if len(ret.coreSize) != dim {
-		panic(fmt.Sprintf("convinfo core size dims need equals to org:%d but %d", dim, len(ret.coreSize)))
+		panic(fmt.Sprintf("convinfo core size dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.coreSize), ret.coreSize))
 	}
 	if len(ret.stride) != dim {
-		panic(fmt.Sprintf("convinfo stride dims need equals to org:%d but %d", dim, len(ret.stride)))
+		panic(fmt.Sprintf("convinfo stride dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.stride), ret.coreSize))
 	}
 	slips := make([]int, dim)
 	for i := 0; i < dim; i++ {
@@ -193,7 +200,7 @@ func (c *ConvInfo) slipBuild(data *mat.VecDense) *mat.Dense {
 	}
 	slipMat := mat.NewDense(c.slipCntSum, c.coreSizeSum, nil)
 	slipRowIdx := 0
-	recuRange(c.fitSize, c.stride, func(startPos []int) {
+	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
 		slipRow := slipMat.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
 		startStepPos := startPos[:step]
@@ -216,7 +223,7 @@ func (c *ConvInfo) slipRestore(data *mat.Dense) *mat.VecDense {
 	step := len(c.orgSize) - 2
 	slipRowIdx := 0
 	fitData := mat.NewVecDense(c.fitSizeSum, nil)
-	recuRange(c.fitSize, c.stride, func(startPos []int) {
+	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
 		slipRow := data.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
 		startStepPos := startPos[:step]

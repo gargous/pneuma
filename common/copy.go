@@ -1,17 +1,19 @@
 package common
 
-import "reflect"
+import (
+	"reflect"
+)
 
 func Copy(src interface{}) interface{} {
 	srcVal := reflect.ValueOf(src)
-	srcTyp := reflect.TypeOf(src)
+	srcTyp := reflect.TypeOf(src).Elem()
 	dstVal := reflect.New(srcTyp)
 	dstVal.MethodByName("Copy").Call([]reflect.Value{srcVal})
 	return dstVal.Interface()
 }
 
-func CopyIHLayer(srcHL IHLayer) IHLayer {
-	return Copy(srcHL).(IHLayer)
+func CopyIHLayer(src IHLayer) IHLayer {
+	return Copy(src).(IHLayer)
 }
 
 func CopyITarget(src ITarget) ITarget {

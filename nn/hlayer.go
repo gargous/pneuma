@@ -106,10 +106,12 @@ func NewHLayerBatchNorm(minstd, momentum float64) *HLayerBatchNorm {
 }
 
 func (l *HLayerBatchNorm) Copy(src *HLayerBatchNorm) {
-	l.e = mat.VecDenseCopyOf(src.e)
-	l.v = mat.VecDenseCopyOf(src.v)
-	l.g = mat.VecDenseCopyOf(src.g)
-	l.b = mat.VecDenseCopyOf(src.b)
+	if src.e != nil {
+		l.e = mat.VecDenseCopyOf(src.e)
+		l.v = mat.VecDenseCopyOf(src.v)
+		l.g = mat.VecDenseCopyOf(src.g)
+		l.b = mat.VecDenseCopyOf(src.b)
+	}
 	l.minstd = src.minstd
 	l.momentum = src.momentum
 	if src.dg != nil {
