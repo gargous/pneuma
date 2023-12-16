@@ -20,12 +20,9 @@ func NewHLayerLinear(r, c int) *HLayerLinear {
 	l := &HLayerLinear{}
 	l.w = mat.NewDense(r, c, nil)
 	l.b = mat.NewVecDense(r, nil)
-	for i := 0; i < r; i++ {
-		for j := 0; j < c; j++ {
-			l.w.Set(i, j, rand.Float64())
-		}
-		l.b.SetVec(i, rand.Float64())
-	}
+	l.w.Apply(func(i, j int, v float64) float64 {
+		return rand.Float64() - 0.5
+	}, l.w)
 	return l
 }
 

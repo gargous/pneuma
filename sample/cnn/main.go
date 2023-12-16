@@ -10,7 +10,7 @@ import (
 
 func handwritten() {
 	epoch := 16
-	batch := 8
+	batch := 16
 	samplingRate := 100.0
 	lineChartChild := 2
 	batchNormMinSTD := 0.0001
@@ -24,15 +24,17 @@ func handwritten() {
 	trainx, trainy := sample.StackSample(trainSamp, batch)
 
 	b := cnn.NewModelBuilder(size)
-	b.Conv([]int{2, 2, 8}, []int{2, 2}, true)
-	b.Conv([]int{2, 2, 16}, []int{2, 2}, true)
-	b.Conv([]int{2, 2, 32}, []int{2, 2}, true)
+	b.Conv([]int{5, 5, 10}, []int{1, 1}, true)
+	b.Conv([]int{3, 3, 20}, []int{1, 1}, true)
+	b.Conv([]int{2, 2, 40}, []int{1, 1}, true)
 	b.FSize(len(labels))
-	//b.CLayer(func(inpSize []int) common.IHLayer { return nn.NewHLayerBatchNorm(batchNormMinSTD, batchNormMT) })
+	b.CLayer(func(inpSize []int) common.IHLayer {
+		return cnn.NewHLayerConvBatchNorm(inpSize, batchNormMinSTD, batchNormMT)
+	})
 	b.CLayer(func(inpSize []int) common.IHLayer { return nn.NewHLayerRelu() })
-	//b.CLayer(func(inpSize []int) common.IHLayer {
-	//	return cnn.NewHLayerMaxPooling(inpSize, []int{2, 2}, []int{2, 2}, true)
-	//})
+	b.CLayer(func(inpSize []int) common.IHLayer {
+		return cnn.NewHLayerMaxPooling(inpSize, []int{2, 2}, []int{2, 2}, true)
+	})
 	b.FLayer(func() common.IHLayer { return nn.NewHLayerBatchNorm(batchNormMinSTD, batchNormMT) })
 	b.FLayer(func() common.IHLayer { return nn.NewHLayerRelu() })
 	b.Optimizer(func() common.IOptimizer { return nn.NewOptMomentum(learingRate, optMT) })

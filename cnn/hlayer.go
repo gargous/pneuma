@@ -2,6 +2,7 @@ package cnn
 
 import (
 	"math/rand"
+	"pneuma/nn"
 
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
@@ -13,19 +14,20 @@ type iHLayerOupt interface {
 
 // w b均为展开状态，每列一个卷积核
 type HLayerConv struct {
-	c        *ConvInfo
+	c        *ConvPacker
 	w        *mat.Dense
 	b        *mat.Dense
 	dw       *mat.Dense
 	db       *mat.Dense
 	ouptSize []int
-	slips    []*mat.Dense
+	packCnt  int
+	packX    *mat.Dense
 }
 
 func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
 	coreCnt := core[len(core)-1]
 	ret := &HLayerConv{}
-	ret.c = NewConvInfo(
+	ret.c = NewConvPacker(
 		inputSize,
 		core[:len(core)-1],
 		stride,
@@ -35,28 +37,32 @@ func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
 	ret.w = mat.NewDense(ret.c.coreSizeSum, coreCnt, nil)
 	ret.ouptSize = append(ret.c.slipCnt[:len(ret.c.slipCnt)-1], coreCnt)
 	ret.w.Apply(func(i, j int, v float64) float64 {
-		return rand.Float64()
+		return rand.Float64() - 0.5
 	}, ret.w)
-	ret.b.Apply(func(i, j int, v float64) float64 {
-		return rand.Float64()
-	}, ret.b)
 	return ret
 }
 
 func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
-	slipCnt, coreCnt := l.b.Dims()
+	wr, _ := l.w.Dims()
+	br, bc := l.b.Dims()
 	batch := x.RawMatrix().Cols
-	y = mat.NewDense(slipCnt*coreCnt, batch, nil)
-	l.slips = make([]*mat.Dense, batch)
+	packX := mat.NewDense(br*batch, wr, nil)
 	for j := 0; j < batch; j++ {
 		xCol := x.ColView(j).(*mat.VecDense)
-		slip := l.c.slipBuild(xCol)
-		l.slips[j] = slip
-		oneRet := mat.NewDense(slipCnt, coreCnt, nil)
-		oneRet.Mul(slip, l.w)
-		oneRet.Add(oneRet, l.b)
-		y.SetCol(j, oneRet.RawMatrix().Data)
+		sliceX := packX.Slice(j*br, j*br+br, 0, wr).(*mat.Dense)
+		packXCol := l.c.Pack(xCol)
+		sliceX.Copy(packXCol)
 	}
+	packY := mat.NewDense(br*batch, bc, nil)
+	packY.Mul(packX, l.w)
+	y = mat.NewDense(br*bc, batch, nil)
+	for j := 0; j < batch; j++ {
+		sliceY := packY.Slice(j*br, j*br+br, 0, bc).(*mat.Dense)
+		sliceY.Add(sliceY, l.b)
+		y.SetCol(j, sliceY.RawMatrix().Data)
+	}
+	l.packX = packX
+	l.packCnt = batch
 	return
 }
 
@@ -66,19 +72,18 @@ func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	br, bc := l.b.Dims()
 	l.dw = mat.NewDense(wr, wc, nil)
 	l.db = mat.NewDense(br, bc, nil)
+	packDy := mat.NewDense(br*batch, bc, dy.RawMatrix().Data)
+	l.dw.Mul(l.packX.T(), packDy)
+	for j := 0; j < batch; j++ {
+		sliceDy := packDy.Slice(j*br, j*br+br, 0, bc).(*mat.Dense)
+		l.db.Add(l.db, sliceDy)
+	}
+	packDx := mat.NewDense(br*batch, wr, nil)
+	packDx.Mul(packDy, l.w.T())
 	dx = mat.NewDense(l.c.orgSizeSum, batch, nil)
 	for j := 0; j < batch; j++ {
-		dyColData := mat.Col(nil, j, dy)
-		slipDy := mat.NewDense(br, bc, dyColData)
-		slipX := l.slips[j]
-		slipDw := mat.NewDense(wr, wc, nil)
-		slipDw.Mul(slipX.T(), slipDy)
-		l.dw.Add(l.dw, slipDw)
-		l.db.Add(l.db, slipDy)
-		sxr, sxc := slipX.Dims()
-		slipDx := mat.NewDense(sxr, sxc, nil)
-		slipDx.Mul(slipDy, l.w.T())
-		dx.SetCol(j, l.c.slipRestore(slipDx).RawVector().Data)
+		sliceDx := packDx.Slice(j*br, j*br+br, 0, wr).(*mat.Dense)
+		dx.SetCol(j, l.c.UnPack(sliceDx).RawVector().Data)
 	}
 	return
 }
@@ -97,8 +102,39 @@ func (l *HLayerConv) OuptSize() []int {
 	return l.ouptSize
 }
 
+type HLayerDimBatchNorm struct {
+	picker *MatColPicker
+	batch  *nn.HLayerBatchNorm
+}
+
+func NewHLayerConvBatchNorm(inputSize []int, minstd, momentum float64) *HLayerDimBatchNorm {
+	return &HLayerDimBatchNorm{
+		picker: NewMatColPicker(inputSize, len(inputSize)-1),
+		batch:  nn.NewHLayerBatchNorm(minstd, momentum),
+	}
+}
+
+func (l *HLayerDimBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
+	newX := l.picker.Pick(x)
+	newXT := mat.DenseCopyOf(newX.T())
+	newYT := l.batch.Forward(newXT)
+	newY := mat.DenseCopyOf(newYT.T())
+	return l.picker.Pick(newY)
+}
+
+func (l *HLayerDimBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	newDy := l.picker.Pick(dy)
+	newDyT := mat.DenseCopyOf(newDy.T())
+	newDxT := l.batch.Backward(newDyT)
+	newDx := mat.DenseCopyOf(newDxT.T())
+	return l.picker.Pick(newDx)
+}
+func (l *HLayerDimBatchNorm) Optimize() (datas, deltas []mat.Matrix) {
+	return l.batch.Optimize()
+}
+
 type HLayerMaxPooling struct {
-	c        *ConvInfo
+	c        *ConvPacker
 	inptSize []int
 	ouptSize []int
 	slips    []*mat.Dense
@@ -107,7 +143,7 @@ type HLayerMaxPooling struct {
 func NewHLayerMaxPooling(inputSize, core, stride []int, padding bool) *HLayerMaxPooling {
 	ret := &HLayerMaxPooling{}
 	inptCnt := inputSize[len(inputSize)-1]
-	ret.c = NewConvInfo(
+	ret.c = NewConvPacker(
 		inputSize,
 		core,
 		stride,
@@ -126,7 +162,7 @@ func (l *HLayerMaxPooling) Forward(x *mat.Dense) (y *mat.Dense) {
 	for j := 0; j < batch; j++ {
 		xCol := x.ColView(j).(*mat.VecDense)
 		yCol := y.ColView(j).(*mat.VecDense)
-		slip := l.c.slipBuild(xCol)
+		slip := l.c.Pack(xCol)
 		newSlip := mat.NewDense(l.c.slipCntSum, l.c.coreSizeSum, nil)
 		recuRange([]int{l.c.slipCntSum, cnt}, nil, func(pos []int) {
 			si, sj := pos[0], pos[1]
@@ -158,7 +194,7 @@ func (l *HLayerMaxPooling) Backward(dy *mat.Dense) (dx *mat.Dense) {
 			slipSlice := slip.Slice(0, l.c.slipCntSum, k*cnt, k*cnt+cnt).(*mat.Dense)
 			slipSlice.MulElem(slipSlice, dyColMat)
 		}
-		dxCol.CopyVec(l.c.slipRestore(slip))
+		dxCol.CopyVec(l.c.UnPack(slip))
 		dy.SetCol(j, dyColMat.RawMatrix().Data)
 	}
 	return

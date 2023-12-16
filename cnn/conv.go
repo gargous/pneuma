@@ -123,7 +123,7 @@ func intsSub(a, b []int) []int {
 	return ret
 }
 
-type ConvInfo struct {
+type ConvPacker struct {
 	orgSize     []int
 	orgSizeSum  int
 	fitSize     []int
@@ -136,10 +136,10 @@ type ConvInfo struct {
 	coreSizeSum int
 }
 
-func NewConvInfo(inputSize, core, stride []int, padding bool) *ConvInfo {
+func NewConvPacker(inputSize, core, stride []int, padding bool) *ConvPacker {
 	dim := len(inputSize)
 	inpCnt := inputSize[len(inputSize)-1]
-	ret := &ConvInfo{
+	ret := &ConvPacker{
 		orgSize:     inputSize,
 		coreSize:    append(core, inpCnt),
 		stride:      append(stride, inpCnt),
@@ -147,10 +147,10 @@ func NewConvInfo(inputSize, core, stride []int, padding bool) *ConvInfo {
 		fitSize:     make([]int, dim),
 	}
 	if len(ret.coreSize) != dim {
-		panic(fmt.Sprintf("convinfo core size dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.coreSize), ret.coreSize))
+		panic(fmt.Sprintf("ConvPacker core size dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.coreSize), ret.coreSize))
 	}
 	if len(ret.stride) != dim {
-		panic(fmt.Sprintf("convinfo stride dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.stride), ret.coreSize))
+		panic(fmt.Sprintf("ConvPacker stride dims need equals to org:%d (%v) but %d (%v)", dim, inputSize, len(ret.stride), ret.coreSize))
 	}
 	slips := make([]int, dim)
 	for i := 0; i < dim; i++ {
@@ -170,7 +170,8 @@ func NewConvInfo(inputSize, core, stride []int, padding bool) *ConvInfo {
 	return ret
 }
 
-func (c *ConvInfo) slipBuild(data *mat.VecDense) *mat.Dense {
+func (c *ConvPacker) Pack(data *mat.VecDense) *mat.Dense {
+	ret := mat.NewDense(c.slipCntSum, c.coreSizeSum, nil)
 	cnt := c.orgSize[len(c.orgSize)-1]
 	step := len(c.orgSize) - 2
 	fitData := data
@@ -198,10 +199,9 @@ func (c *ConvInfo) slipBuild(data *mat.VecDense) *mat.Dense {
 			fitSlice.CopyVec(orgSlice)
 		})
 	}
-	slipMat := mat.NewDense(c.slipCntSum, c.coreSizeSum, nil)
 	slipRowIdx := 0
 	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
-		slipRow := slipMat.RowView(slipRowIdx).(*mat.VecDense)
+		slipRow := ret.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
 		startStepPos := startPos[:step]
 		startStepOffset := startPos[step]
@@ -215,14 +215,14 @@ func (c *ConvInfo) slipBuild(data *mat.VecDense) *mat.Dense {
 			slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset).(*mat.VecDense).CopyVec(fitRow)
 		})
 	})
-	return slipMat
+	return ret
 }
 
-func (c *ConvInfo) slipRestore(data *mat.Dense) *mat.VecDense {
+func (c *ConvPacker) UnPack(data *mat.Dense) *mat.VecDense {
+	fitData := mat.NewVecDense(c.fitSizeSum, nil)
 	cnt := c.orgSize[len(c.orgSize)-1]
 	step := len(c.orgSize) - 2
 	slipRowIdx := 0
-	fitData := mat.NewVecDense(c.fitSizeSum, nil)
 	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
 		slipRow := data.RowView(slipRowIdx).(*mat.VecDense)
 		slipRowIdx += 1
@@ -263,5 +263,50 @@ func (c *ConvInfo) slipRestore(data *mat.Dense) *mat.VecDense {
 			retSlice.CopyVec(fitSlice)
 		})
 	}
+	return retData
+}
+
+type MatColPicker struct {
+	size    []int
+	pickDim int
+}
+
+func NewMatColPicker(size []int, pickDim int) *MatColPicker {
+	return &MatColPicker{
+		size:    size,
+		pickDim: pickDim,
+	}
+}
+
+func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
+	_, c := data.Dims()
+	searchStride := append([]int{}, m.size...)
+	searchStride[m.pickDim] = 1
+	rangStride := intsAddConst(1, make([]int, len(m.size)))
+	rangStride[m.pickDim] = m.size[m.pickDim]
+	newColSize := append([]int{}, m.size...)
+	newColSize[m.pickDim] = c
+	for i := 0; i < c; i++ {
+		oldCol := data.ColView(i)
+		recuRange(m.size, searchStride, func(startPos []int) {
+			newCol := dst.ColView(startPos[m.pickDim]).(*mat.VecDense)
+			recuRange(m.size, rangStride, func(rangPos []int) {
+				pos := intsAdd(startPos, rangPos)
+				oldIdx := posIdx(pos, m.size)
+				newPos := append(append(pos[:m.pickDim], i), pos[m.pickDim+1:]...)
+				newIdx := posIdx(newPos, newColSize)
+				newCol.SetVec(newIdx, oldCol.AtVec(oldIdx))
+			})
+		})
+	}
+	m.size = newColSize
+}
+
+func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
+	_, c := data.Dims()
+	searchStride := append([]int{}, m.size...)
+	searchStride[m.pickDim] = 1
+	retData := mat.NewDense(intsProd(searchStride)*c, m.size[m.pickDim], nil)
+	m.PickTo(retData, data)
 	return retData
 }
