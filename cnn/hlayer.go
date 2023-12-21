@@ -2,6 +2,7 @@ package cnn
 
 import (
 	"math/rand"
+	"pneuma/common"
 	"pneuma/nn"
 
 	"gonum.org/v1/gonum/floats"
@@ -20,8 +21,7 @@ type HLayerConv struct {
 	dw       *mat.Dense
 	db       *mat.Dense
 	ouptSize []int
-	packCnt  int
-	packX    *mat.Dense
+	caltor   common.IConvCaltor
 }
 
 func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
@@ -39,6 +39,7 @@ func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
 	ret.w.Apply(func(i, j int, v float64) float64 {
 		return rand.Float64() - 0.5
 	}, ret.w)
+	ret.caltor = &ConvCalter{}
 	return ret
 }
 
@@ -54,15 +55,12 @@ func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
 		sliceX.Copy(packXCol)
 	}
 	packY := mat.NewDense(br*batch, bc, nil)
-	packY.Mul(packX, l.w)
+	l.caltor.Forward(packX, packY, l.w, l.b)
 	y = mat.NewDense(br*bc, batch, nil)
 	for j := 0; j < batch; j++ {
 		sliceY := packY.Slice(j*br, j*br+br, 0, bc).(*mat.Dense)
-		sliceY.Add(sliceY, l.b)
 		y.SetCol(j, sliceY.RawMatrix().Data)
 	}
-	l.packX = packX
-	l.packCnt = batch
 	return
 }
 
@@ -73,19 +71,18 @@ func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	l.dw = mat.NewDense(wr, wc, nil)
 	l.db = mat.NewDense(br, bc, nil)
 	packDy := mat.NewDense(br*batch, bc, dy.RawMatrix().Data)
-	l.dw.Mul(l.packX.T(), packDy)
-	for j := 0; j < batch; j++ {
-		sliceDy := packDy.Slice(j*br, j*br+br, 0, bc).(*mat.Dense)
-		l.db.Add(l.db, sliceDy)
-	}
 	packDx := mat.NewDense(br*batch, wr, nil)
-	packDx.Mul(packDy, l.w.T())
+	l.caltor.Backward(packDx, packDy, l.dw, l.db)
 	dx = mat.NewDense(l.c.orgSizeSum, batch, nil)
 	for j := 0; j < batch; j++ {
 		sliceDx := packDx.Slice(j*br, j*br+br, 0, wr).(*mat.Dense)
 		dx.SetCol(j, l.c.UnPack(sliceDx).RawVector().Data)
 	}
 	return
+}
+
+func (l *HLayerConv) SetCaltor(caltor common.IConvCaltor) {
+	l.caltor = caltor
 }
 
 func (l *HLayerConv) Optimize() (datas, deltas []mat.Matrix) {

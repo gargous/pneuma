@@ -22,8 +22,10 @@ func main() {
 	//makeBT5Sample(trainSamp, testSamp, lables)
 	//makeBTZeroSample(trainSamp, testSamp, lables)
 	//makePrimeSample(trainSamp, testSamp, lables, true)
-	trainSamp, testx, testy, valix, valiy := sample.RandSample(trainSamp, testSamp)
+	trainSamp, testSamp, valiSamp := sample.RandSample(trainSamp, testSamp)
 	trainx, trainy := sample.StackSample(trainSamp, batch)
+	testx, testy := sample.StackSample(testSamp, 1)
+	valix, valiy := sample.StackSample(valiSamp, 1)
 
 	builder := dnn.NewModelBuilder()
 	//builder.Size(trainSamp[0].x.Len(), 10, 10, 2)
@@ -42,20 +44,20 @@ func main() {
 	lineChart.Reg("acc_vali", "acc_test", "loss_train")
 	for e := 0; e < epoch; e++ {
 		if e >= lineChartChild {
-			m.TrainEpoch(trainx, trainy)
+			m.Trains(trainx, trainy)
 		} else {
 			sampFreq := int(float64(len(trainx)) / samplingRate)
-			m.TrainEpochTimes(trainx, trainy, func(trainTimes int) {
+			m.TrainTimes(trainx, trainy, func(trainTimes int) {
 				if trainTimes%sampFreq == 0 {
-					vpred := m.Predict(valix)
-					tpred := m.Predict(testx)
-					lineChart.Child(e).Append(m.Acc(vpred, valiy), m.Acc(tpred, testy), m.LossLatest())
+					vpred := m.Predict(valix[0])
+					tpred := m.Predict(testx[0])
+					lineChart.Child(e).Append(m.Acc(vpred, valiy[0]), m.Acc(tpred, testy[0]), m.LossLatest())
 				}
 			})
 		}
-		vpred := m.Predict(valix)
-		tpred := m.Predict(testx)
-		lineChart.Append(m.Acc(vpred, valiy), m.Acc(tpred, testy), m.LossPopMean())
+		vpred := m.Predict(valix[0])
+		tpred := m.Predict(testx[0])
+		lineChart.Append(m.Acc(vpred, valiy[0]), m.Acc(tpred, testy[0]), m.LossPopMean())
 		fmt.Printf("train at:%d, %s\n", e, lineChart.Format(lineChart.Len()-1))
 	}
 	lineChart.Draw()

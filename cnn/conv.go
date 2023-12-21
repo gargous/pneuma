@@ -310,3 +310,35 @@ func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
 	m.PickTo(retData, data)
 	return retData
 }
+
+type ConvCalter struct {
+	packX *mat.Dense
+	w     *mat.Dense
+}
+
+func (c *ConvCalter) Forward(packX, packY, w, b *mat.Dense) {
+	packY.Mul(packX, w)
+	br, bc := b.Dims()
+	blen := br * bc
+	packYData := packY.RawMatrix().Data
+	for j := 0; j < len(packYData); j += blen {
+		sliceY := mat.NewDense(br, bc, packYData[j:j+blen])
+		sliceY.Add(sliceY, b)
+	}
+	c.packX = packX
+	c.w = w
+}
+
+func (c *ConvCalter) Backward(packDx, packDy, dw, db *mat.Dense) {
+	dw.Mul(c.packX.T(), packDy)
+	br, bc := db.Dims()
+	blen := br * bc
+	packDyData := packDy.RawMatrix().Data
+	for j := 0; j < len(packDyData); j += blen {
+		sliceDy := mat.NewDense(br, bc, packDyData[j:j+blen])
+		db.Add(db, sliceDy)
+	}
+	packDx.Mul(packDy, c.w.T())
+	c.packX = nil
+	c.w = nil
+}

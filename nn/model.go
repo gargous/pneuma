@@ -137,11 +137,39 @@ func (m *Model) IsDone() bool {
 	return m.loss.isDone()
 }
 
-func (m *Model) TrainEpoch(trainX, trainY []*mat.Dense) {
-	m.TrainEpochTimes(trainX, trainY, nil)
+func (m *Model) Predicts(predX []*mat.Dense) []*mat.Dense {
+	predY := make([]*mat.Dense, len(predX))
+	for i := 0; i < len(predX); i++ {
+		predY[i] = m.Predict(predX[i])
+	}
+	return predY
 }
 
-func (m *Model) TrainEpochTimes(trainX, trainY []*mat.Dense, oneTimes func(int)) {
+func (m *Model) Accs(preds, targs []*mat.Dense) float64 {
+	cnt := 0.0
+	acnt := 0.0
+	for i := 0; i < len(preds); i++ {
+		_, batch := targs[i].Dims()
+		acc := m.Acc(preds[i], targs[i])
+		cnt += acc * float64(batch)
+		acnt += float64(batch)
+	}
+	return cnt / acnt
+}
+
+func (m *Model) MeanLosses(preds, targs []*mat.Dense) float64 {
+	loss := 0.0
+	for i := 0; i < len(preds); i++ {
+		loss += m.Loss(preds[i], targs[i])
+	}
+	return loss / float64(len(preds))
+}
+
+func (m *Model) Trains(trainX, trainY []*mat.Dense) {
+	m.TrainTimes(trainX, trainY, nil)
+}
+
+func (m *Model) TrainTimes(trainX, trainY []*mat.Dense, oneTimes func(int)) {
 	var trainTimes int
 	for i := 0; i < len(trainX); i++ {
 		x, y := trainX[i], trainY[i]

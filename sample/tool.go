@@ -18,43 +18,38 @@ type NNSample struct {
 	Y *mat.VecDense
 }
 
-func RandSample(trainSamp, testSamp []NNSample) (trainSampi []NNSample, testx, testy, valix, valiy *mat.Dense) {
+func RandSample(trainSamp, testSamp []NNSample) (trainSampi, testSampi, valiSampi []NNSample) {
 	trainSampi = make([]NNSample, len(trainSamp))
+	testSampi = make([]NNSample, len(testSamp))
+	valiSampi = make([]NNSample, len(testSamp))
 	for i, tindex := range rand.Perm(len(trainSamp)) {
 		trainSampi[i] = trainSamp[tindex]
 	}
-	testSampi := make([]NNSample, len(testSamp))
 	for i, tindex := range rand.Perm(len(testSamp)) {
 		testSampi[i] = testSamp[tindex]
 	}
-	testSamp = testSampi
-	testx = mat.NewDense(trainSamp[0].X.Len(), len(testSamp), nil)
-	testy = mat.NewDense(trainSamp[0].Y.Len(), len(testSamp), nil)
-	valix = mat.NewDense(trainSamp[0].X.Len(), len(testSamp), nil)
-	valiy = mat.NewDense(trainSamp[0].Y.Len(), len(testSamp), nil)
-
-	for j := 0; j < testx.RawMatrix().Cols; j++ {
-		testx.SetCol(j, testSamp[j].X.RawVector().Data)
-		testy.SetCol(j, testSamp[j].Y.RawVector().Data)
-	}
-	for j := 0; j < valix.RawMatrix().Cols; j++ {
-		valix.SetCol(j, trainSampi[j].X.RawVector().Data)
-		valiy.SetCol(j, trainSampi[j].Y.RawVector().Data)
+	for i, tindex := range rand.Perm(len(trainSamp)) {
+		if i >= len(testSamp) {
+			break
+		}
+		valiSampi[i] = trainSamp[tindex]
 	}
 	return
 }
 
 func StackSample(trainSamp []NNSample, batch int) (trainx, trainy []*mat.Dense) {
-	for i := 0; i < len(trainSamp); i += batch {
+	for i := batch; i < len(trainSamp); i += batch {
 		xrow := trainSamp[i].X.Len()
 		yrow := trainSamp[i].Y.Len()
 		x := mat.NewDense(xrow, batch, nil)
 		y := mat.NewDense(yrow, batch, nil)
-		for j := 0; j < batch; j++ {
-			sx := trainSamp[i+j].X.RawVector().Data
-			sy := trainSamp[i+j].Y.RawVector().Data
-			x.SetCol(j, sx)
-			y.SetCol(j, sy)
+		cIdx := 0
+		for j := i - batch; j < i; j++ {
+			sx := trainSamp[j].X.RawVector().Data
+			sy := trainSamp[j].Y.RawVector().Data
+			x.SetCol(cIdx, sx)
+			y.SetCol(cIdx, sy)
+			cIdx++
 		}
 		trainx = append(trainx, x)
 		trainy = append(trainy, y)

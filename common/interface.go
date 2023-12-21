@@ -25,3 +25,8 @@ type ITarget interface {
 	Loss(pred, targ *mat.Dense) (y float64)
 	Backward() (dy *mat.Dense)
 }
+
+type IConvCaltor interface {
+	Forward(packX, packY, w, b *mat.Dense)
+	Backward(packDx, packDy, dw, db *mat.Dense)
+}
