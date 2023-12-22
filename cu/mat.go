@@ -9,17 +9,29 @@ import (
 	"gorgonia.org/cu"
 )
 
-type DenseCaltorCU struct {
+type IMatCaltor interface {
+	Idx(data mat.Matrix) int
+	Pointer(a []float64) unsafe.Pointer
+	DeviceDataByIdx(idx int) []float64
+	HostData(data mat.Matrix) []float64
+	Start(datas ...mat.Matrix)
+	End(datas ...mat.Matrix)
+	Clear(datas ...mat.Matrix)
+
+	AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix)
+}
+
+type MatCaltor struct {
 	e        *Engine
-	datas    []*mat.Dense
+	datas    []mat.Matrix
 	dataPtrs []cu.DevicePtr
 }
 
-func NewDenseCaltorCU(e *Engine) *DenseCaltorCU {
-	return &DenseCaltorCU{e: e}
+func NewMatCaltor(e *Engine) *MatCaltor {
+	return &MatCaltor{e: e}
 }
 
-func (d *DenseCaltorCU) IdxOf(data *mat.Dense, datas []*mat.Dense) int {
+func (d *MatCaltor) IdxOf(data mat.Matrix, datas []mat.Matrix) int {
 	for i := 0; i < len(datas); i++ {
 		if datas[i] == data {
 			return i
@@ -28,16 +40,17 @@ func (d *DenseCaltorCU) IdxOf(data *mat.Dense, datas []*mat.Dense) int {
 	return -1
 }
 
-func (d *DenseCaltorCU) Idx(data *mat.Dense) int {
+func (d *MatCaltor) Idx(data mat.Matrix) int {
 	return d.IdxOf(data, d.datas)
 }
 
-func (d *DenseCaltorCU) Pointer(a []float64) unsafe.Pointer {
+func (d *MatCaltor) Pointer(a []float64) unsafe.Pointer {
 	return unsafe.Pointer(&a[0])
 }
 
-func (d *DenseCaltorCU) DeviceDataByIdx(idx int) []float64 {
-	size := len(d.datas[idx].RawMatrix().Data)
+func (d *MatCaltor) DeviceDataByIdx(idx int) []float64 {
+	r, c := d.datas[idx].Dims()
+	size := r * c
 	ptr := d.dataPtrs[idx].Uintptr()
 	var data []float64
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
@@ -47,14 +60,27 @@ func (d *DenseCaltorCU) DeviceDataByIdx(idx int) []float64 {
 	return data
 }
 
-func (d *DenseCaltorCU) DeviceData(data *mat.Dense) []float64 {
+func (d *MatCaltor) HostData(data mat.Matrix) []float64 {
+	switch rdata := data.(type) {
+	case *mat.Dense:
+		return rdata.RawMatrix().Data
+	case *mat.VecDense:
+		return rdata.RawVector().Data
+	}
+	panic("invalid mat type")
+}
+
+func (d *MatCaltor) DeviceData(data mat.Matrix) []float64 {
 	return d.DeviceDataByIdx(d.Idx(data))
 }
 
-func (d *DenseCaltorCU) Start(datas ...*mat.Dense) {
+func (d *MatCaltor) Start(datas ...mat.Matrix) {
 	fsize := int(unsafe.Sizeof(0.0))
 	for i := 0; i < len(datas); i++ {
-		data := datas[i].RawMatrix().Data
+		if d.Idx(datas[i]) >= 0 {
+			continue
+		}
+		data := d.HostData(datas[i])
 		p, err := d.e.AllocAndCopy(d.Pointer(data), int64(len(data)*fsize))
 		if err != nil {
 			panic(err)
@@ -64,11 +90,11 @@ func (d *DenseCaltorCU) Start(datas ...*mat.Dense) {
 	}
 }
 
-func (d *DenseCaltorCU) End(datas ...*mat.Dense) {
+func (d *MatCaltor) End(datas ...mat.Matrix) {
 	fsize := int(unsafe.Sizeof(0.0))
 	for i := 0; i < len(datas); i++ {
 		idx := d.Idx(datas[i])
-		data := d.datas[idx].RawMatrix().Data
+		data := d.HostData(d.datas[idx])
 		dst := d.Pointer(data)
 		src := d.dataPtrs[idx]
 		err := d.e.CopyBack(dst, src, int64(len(data)*fsize))
@@ -78,29 +104,23 @@ func (d *DenseCaltorCU) End(datas ...*mat.Dense) {
 	}
 }
 
-func (d *DenseCaltorCU) Clear(excluds ...*mat.Dense) {
-	newPtrs := make([]cu.DevicePtr, 0)
-	newDatas := make([]*mat.Dense, 0)
-	for i := 0; i < len(d.dataPtrs); i++ {
-		if d.IdxOf(d.datas[i], excluds) >= 0 {
-			newPtrs = append(newPtrs, d.dataPtrs[i])
-			newDatas = append(newDatas, d.datas[i])
-		} else {
-			err := d.e.Free(d.dataPtrs[i])
-			if err != nil {
-				panic(err)
-			}
+func (d *MatCaltor) Clear(datas ...mat.Matrix) {
+	for i := 0; i < len(datas); i++ {
+		idx := d.Idx(datas[i])
+		err := d.e.Free(d.dataPtrs[idx])
+		if err != nil {
+			panic(err)
 		}
+		d.dataPtrs = append(d.dataPtrs[:idx], d.dataPtrs[idx+1:]...)
+		d.datas = append(d.datas[:idx], d.datas[idx+1:]...)
 	}
-	d.dataPtrs = newPtrs
-	d.datas = newDatas
 }
 
-func (d *DenseCaltorCU) Mul(dst, am, bm *mat.Dense, za, zb bool) {
+func (d *MatCaltor) Mul(dst, am, bm mat.Matrix, za, zb bool) {
 	d.MulKSpan(dst, am, bm, za, zb, 100)
 }
 
-func (d *DenseCaltorCU) MulKSpan(dst, am, bm *mat.Dense, za, zb bool, kspan int) {
+func (d *MatCaltor) MulKSpan(dst, am, bm mat.Matrix, za, zb bool, kspan int) {
 	a, b, c := d.Idx(am), d.Idx(bm), d.Idx(dst)
 	m, k := d.datas[a].Dims()
 	_, n := d.datas[b].Dims()
@@ -178,19 +198,11 @@ func (d *DenseCaltorCU) MulKSpan(dst, am, bm *mat.Dense, za, zb bool, kspan int)
 
 }
 
-func (d *DenseCaltorCU) Add(dst, src *mat.Dense) {
-	err := d.e.Do(func() error {
-		pyf := d.DeviceData(dst)
-		pxf := d.DeviceData(src)
-		d.e.Daxpy(len(pyf), 1, pxf, 1, pyf, 1)
-		return d.e.Err()
-	})
-	if err != nil {
-		panic(err)
-	}
+func (d *MatCaltor) Add(dst, src mat.Matrix) {
+	d.AddScaled(dst, 1, src)
 }
 
-func (d *DenseCaltorCU) AddSlice(dst, src *mat.Dense, dstFrom, srcFrom, length int) {
+func (d *MatCaltor) AddSlice(dst, src mat.Matrix, dstFrom, srcFrom, length int) {
 	err := d.e.Do(func() error {
 		pyf := d.DeviceData(dst)[dstFrom:]
 		pxf := d.DeviceData(src)[srcFrom:]
@@ -202,10 +214,22 @@ func (d *DenseCaltorCU) AddSlice(dst, src *mat.Dense, dstFrom, srcFrom, length i
 	}
 }
 
-func (d *DenseCaltorCU) Scale(alpha float64, data *mat.Dense) {
+func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
+	err := d.e.Do(func() error {
+		pyf := d.DeviceData(dst)
+		pxf := d.DeviceData(src)
+		d.e.Daxpy(len(pyf), alpha, pxf, 1, pyf, 1)
+		return d.e.Err()
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (d *MatCaltor) Scale(alpha float64, data mat.Matrix) {
 	err := d.e.Do(func() error {
 		pf := d.DeviceData(data)
-		d.e.Dscal(len(data.RawMatrix().Data), alpha, pf, 1)
+		d.e.Dscal(len(d.HostData(data)), alpha, pf, 1)
 		return d.e.Err()
 	})
 	if err != nil {

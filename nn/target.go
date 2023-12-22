@@ -15,8 +15,8 @@ type LossParam struct {
 
 func NewLossParam() *LossParam {
 	return &LossParam{
-		Threshold: 0.01,
-		MinLoss:   0.01,
+		Threshold: 0.0001,
+		MinLoss:   0.0001,
 		MinTimes:  1000,
 	}
 }

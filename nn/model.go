@@ -17,16 +17,6 @@ func NewModel() *Model {
 	return &Model{}
 }
 
-func (m *Model) Copy(src *Model) {
-	m.layers = make([]*layer, len(src.layers))
-	for k, l := range src.layers {
-		m.layers[k] = &layer{}
-		m.layers[k].copy(l)
-	}
-	m.loss = &loss{}
-	m.loss.copy(src.loss)
-}
-
 func (m *Model) SetTarget(tar common.ITarget, param *LossParam) {
 	m.loss = &loss{
 		target: tar,
@@ -59,6 +49,15 @@ func (m *Model) Layer(idx int) (opt common.IOptimizer, layers []common.IHLayer) 
 }
 
 func (m *Model) SetLayer(idx int, opt common.IOptimizer, layers ...common.IHLayer) {
+	if optc, isOptc := opt.(common.IOptimizerCoLayer); isOptc {
+		var clayers []common.IHLayerOptimizer
+		for i := 0; i < len(layers); i++ {
+			if layc, isLayc := layers[i].(common.IHLayerOptimizer); isLayc {
+				clayers = append(clayers, layc)
+			}
+		}
+		optc.SetIHLayers(clayers...)
+	}
 	m.layers[idx] = &layer{
 		optimizer: opt,
 		hlayers:   layers,

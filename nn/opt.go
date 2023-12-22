@@ -27,8 +27,8 @@ func rangeOptimize(datas, deltas []mat.Matrix, vec func(i int, x, dx *mat.VecDen
 	}
 }
 
-func (opt *OptNormal) Copy(src *OptNormal) {
-	opt.lr = src.lr
+func (opt *OptNormal) Param() (lr float64) {
+	return opt.lr
 }
 
 func (opt *OptNormal) Update(datas, deltas []mat.Matrix) {
@@ -57,6 +57,10 @@ func NewOptMomentum(lr, mt float64) *OptMomentum {
 	}
 }
 
+func (opt *OptMomentum) Param() (lr, mt float64) {
+	return opt.lr, opt.mt
+}
+
 func (opt *OptMomentum) init(datas, deltas []mat.Matrix) {
 	if len(opt.v) == len(datas) {
 		return
@@ -70,20 +74,6 @@ func (opt *OptMomentum) init(datas, deltas []mat.Matrix) {
 			r, c := x.Dims()
 			opt.v[i] = mat.NewDense(r, c, nil)
 		})
-}
-
-func (opt *OptMomentum) Copy(src *OptMomentum) {
-	opt.lr = src.lr
-	opt.mt = src.mt
-	if len(src.v) != 0 {
-		opt.v = make([]mat.Matrix, len(src.v))
-		rangeOptimize(src.v, src.v,
-			func(i int, x, dx *mat.VecDense) {
-				opt.v[i] = mat.VecDenseCopyOf(x)
-			}, func(i int, x, dx *mat.Dense) {
-				opt.v[i] = mat.DenseCopyOf(x)
-			})
-	}
 }
 
 func (opt *OptMomentum) Update(datas, deltas []mat.Matrix) {

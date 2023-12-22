@@ -30,11 +30,18 @@ func NewModelBuilder(inpSize []int) *ModelBuilder {
 	}
 }
 
-func (m *ModelBuilder) Conv(core, stride []int, padding bool) *ModelConvBuilder {
+func (m *ModelBuilder) ConvStd(core, stride []int, padding bool) *ModelConvBuilder {
 	cb := &ModelConvBuilder{}
 	cb.layers = []func(inpSize []int) common.IHLayer{func(inpSize []int) common.IHLayer {
 		return NewHLayerConv(inpSize, core, stride, padding)
 	}}
+	m.cbuilders = append(m.cbuilders, cb)
+	return cb
+}
+
+func (m *ModelBuilder) Conv(layer func(inpSize []int) common.IHLayer) *ModelConvBuilder {
+	cb := &ModelConvBuilder{}
+	cb.layers = []func(inpSize []int) common.IHLayer{layer}
 	m.cbuilders = append(m.cbuilders, cb)
 	return cb
 }

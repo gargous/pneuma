@@ -8,7 +8,7 @@ import (
 
 func TestDenseCaltorCU1(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -34,7 +34,7 @@ func TestDenseCaltorCU1(t *testing.T) {
 
 func TestDenseCaltorCU2(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -59,7 +59,7 @@ func TestDenseCaltorCU2(t *testing.T) {
 
 func TestDenseCaltorCU3(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
 		4, 5, 6,
@@ -83,7 +83,7 @@ func TestDenseCaltorCU3(t *testing.T) {
 
 func TestDenseCaltorCU4(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
 		4, 5, 6,
@@ -106,7 +106,7 @@ func TestDenseCaltorCU4(t *testing.T) {
 
 func TestDenseCaltorCU5(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
 		4, 5, 6,
@@ -129,7 +129,7 @@ func TestDenseCaltorCU5(t *testing.T) {
 
 func TestDenseCaltorCU6(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(3, 3, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -155,7 +155,7 @@ func TestDenseCaltorCU6(t *testing.T) {
 
 func TestDenseCaltorCU7(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -181,7 +181,7 @@ func TestDenseCaltorCU7(t *testing.T) {
 
 func TestDenseCaltorCU8(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -207,7 +207,7 @@ func TestDenseCaltorCU8(t *testing.T) {
 
 func TestDenseCaltorCU9(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(3, 3, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -233,7 +233,7 @@ func TestDenseCaltorCU9(t *testing.T) {
 
 func TestDenseCaltorCU10(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(3, 3, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -259,7 +259,7 @@ func TestDenseCaltorCU10(t *testing.T) {
 
 func TestDenseCaltorCU11(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,
@@ -284,7 +284,7 @@ func TestDenseCaltorCU11(t *testing.T) {
 
 func TestDenseCaltorCU12(t *testing.T) {
 	e := NewEngine()
-	c := NewDenseCaltorCU(e)
+	c := NewMatCaltor(e)
 	dst := mat.NewDense(2, 2, nil)
 	a := mat.NewDense(2, 3, []float64{
 		1, 2, 3,

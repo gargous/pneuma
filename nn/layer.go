@@ -12,17 +12,6 @@ type layer struct {
 	optimizer common.IOptimizer
 }
 
-func (l *layer) copy(src *layer) {
-	l.optimizer = common.CopyIOptimizer(src.optimizer)
-	l.hlayers = make([]common.IHLayer, len(src.hlayers))
-	if src.ret != nil {
-		l.ret = mat.DenseCopyOf(src.ret)
-	}
-	for k, srcHL := range src.hlayers {
-		l.hlayers[k] = common.CopyIHLayer(srcHL)
-	}
-}
-
 func (l *layer) forward(a *mat.Dense) *mat.Dense {
 	for i := 0; i < len(l.hlayers); i++ {
 		a = l.hlayers[i].Forward(a)
