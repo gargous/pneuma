@@ -37,7 +37,7 @@ func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
 	wr, _ := l.W.Dims()
 	br, bc := l.B.Dims()
 	packX := mat.NewDense(br*batch, wr, nil)
-	l.C.FoldBatches(x, packX, l.C.Pack)
+	l.C.FoldBatches(x, packX, l.C.PackTo)
 	packY := mat.NewDense(br*batch, bc, nil)
 	l.PackX = packX
 
@@ -81,6 +81,6 @@ func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 
 	_, orgSizeSum := l.C.OrgSize()
 	dx = mat.NewDense(orgSizeSum, batch, nil)
-	l.C.UnfoldBatches(dx, packDx, l.C.UnPack)
+	l.C.UnfoldBatches(dx, packDx, l.C.UnPackTo)
 	return
 }

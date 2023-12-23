@@ -2,6 +2,7 @@ package cnn
 
 import (
 	"fmt"
+	"pneuma/common"
 
 	"gonum.org/v1/gonum/blas/blas64"
 	"gonum.org/v1/gonum/mat"
@@ -28,107 +29,6 @@ func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
 	return
 }
 
-func recuRange(size, stride []int, cb func(pos []int)) {
-	if stride == nil {
-		stride = make([]int, len(size))
-		for i := 0; i < len(size); i++ {
-			stride[i] = 1
-		}
-	}
-	_recuRange(0, size, stride, make([]int, len(size)), cb)
-}
-
-func _recuRange(depth int, size, stride []int, pos []int, cb func(pos []int)) {
-	if depth == len(size) {
-		cb(pos)
-		return
-	}
-	for i := 0; i < size[depth]; i += stride[depth] {
-		pos[depth] = i
-		_recuRange(depth+1, size, stride, pos, cb)
-	}
-}
-
-func posIdx(pos, size []int) int {
-	idx := 0
-	for i := 0; i < len(size); i++ {
-		idx = idxExpend(idx, pos[i], size[i])
-	}
-	return idx
-}
-
-func idxExpend(oldIdx, newIdx, newSize int) int {
-	return oldIdx*newSize + newIdx
-}
-
-func sizeBound(pos, size []int) bool {
-	for i := 0; i < len(pos); i++ {
-		if pos[i] < 0 || pos[i] >= size[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func intsEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func intsMin(ints []int) (ret int) {
-	midx := -1
-	for idx, v := range ints {
-		if midx < 0 || ret > v {
-			ret = v
-			midx = idx
-		}
-	}
-	return
-}
-
-func intsProd(ints []int) (ret int) {
-	ret = 1
-	for _, v := range ints {
-		ret *= v
-	}
-	return
-}
-
-func intsAdd(a, b []int) []int {
-	ret := make([]int, len(a))
-	intsAddTo(ret, a, b)
-	return ret
-}
-
-func intsAddTo(src, a, b []int) {
-	for i := 0; i < len(a); i++ {
-		src[i] = a[i] + b[i]
-	}
-}
-
-func intsAddConst(a int, b []int) []int {
-	ret := make([]int, len(b))
-	for i := 0; i < len(b); i++ {
-		ret[i] = a + b[i]
-	}
-	return ret
-}
-
-func intsSub(a, b []int) []int {
-	ret := make([]int, len(a))
-	for i := 0; i < len(a); i++ {
-		ret[i] = a[i] - b[i]
-	}
-	return ret
-}
-
 type ConvKernalParam struct {
 	size    []int
 	stride  []int
@@ -143,6 +43,21 @@ func NewConvKParam(size, stride []int, padding bool) ConvKernalParam {
 	}
 }
 
+type ConvPackerCalInfo struct {
+	needFit     bool
+	pads        []int
+	fitPos      []int
+	orgPos      []int
+	step        int
+	pad         int
+	padOffset   int
+	fitStride   []int
+	kerOffset   int
+	kerCnt      []int
+	kerStartPos []int
+	kerStride   []int
+}
+
 type ConvPacker struct {
 	orgSize     []int
 	orgSizeSum  int
@@ -154,6 +69,7 @@ type ConvPacker struct {
 	slipCnt     []int
 	slipCntSum  int
 	coreSizeSum int
+	info        ConvPackerCalInfo
 }
 
 func NewConvPacker(inputSize []int, param ConvKernalParam) *ConvPacker {
@@ -183,10 +99,29 @@ func NewConvPacker(inputSize []int, param ConvKernalParam) *ConvPacker {
 		ret.fitSize[i] = inputSize[i] + pl + pr
 	}
 	ret.slipCnt = slips
-	ret.fitSizeSum = intsProd(ret.fitSize)
-	ret.orgSizeSum = intsProd(ret.orgSize)
-	ret.slipCntSum = intsProd(slips)
-	ret.coreSizeSum = intsProd(ret.coreSize)
+	ret.fitSizeSum = common.IntsProd(ret.fitSize)
+	ret.orgSizeSum = common.IntsProd(ret.orgSize)
+	ret.slipCntSum = common.IntsProd(slips)
+	ret.coreSizeSum = common.IntsProd(ret.coreSize)
+
+	step := dim - 2
+	ret.info = ConvPackerCalInfo{
+		needFit:     !common.IntsEqual(ret.orgSize, ret.fitSize),
+		fitStride:   common.IntsAddConst(1, make([]int, dim)),
+		kerStride:   common.IntsAddConst(1, make([]int, dim)),
+		pads:        make([]int, dim),
+		fitPos:      make([]int, dim),
+		orgPos:      make([]int, dim),
+		step:        step,
+		pad:         ret.paddingLeft[step],
+		padOffset:   common.IntsMin(ret.orgSize[step], ret.fitSize[step]) * inpCnt,
+		kerOffset:   ret.coreSize[step] * inpCnt,
+		kerCnt:      common.IntsAddConst(1, common.IntsSub(ret.fitSize, ret.coreSize)),
+		kerStartPos: make([]int, dim),
+	}
+	copy(ret.info.pads[:step], ret.paddingLeft[:step])
+	copy(ret.info.kerStride[step:], ret.coreSize[step:])
+	copy(ret.info.fitStride[step:], ret.orgSize[step:])
 	return ret
 }
 
@@ -217,103 +152,104 @@ func sliceVecCopy(dst, src *mat.VecDense, dstStart, srcStart, n int) {
 	imp.Dcopy(n, srcData, incSrc, dstData, incDst)
 }
 
+func sliceVecAdd(dst, src *mat.VecDense, dstStart, srcStart, n int) {
+	incDst := dst.RawVector().Inc
+	incSrc := src.RawVector().Inc
+	dstData := sliceVec(dst, dstStart, dstStart+n)
+	srcData := sliceVec(src, srcStart, srcStart+n)
+	imp := blas64.Implementation()
+	imp.Daxpy(n, 1, srcData, incSrc, dstData, incDst)
+}
+
 func (c *ConvPacker) Pack(vec *mat.VecDense) *mat.Dense {
 	ret := mat.NewDense(c.slipCntSum, c.coreSizeSum, nil)
-	cnt := c.orgSize[len(c.orgSize)-1]
-	step := len(c.orgSize) - 2
-	fitVec := vec
-	fitStepPos := make([]int, step)
-	if !intsEqual(c.orgSize, c.fitSize) {
-		fitVec = mat.NewVecDense(c.fitSizeSum, nil)
-		padStep, pad := c.paddingLeft[:step], c.paddingLeft[step]
-		offset := intsMin([]int{c.orgSize[step], c.fitSize[step]}) * cnt
-		orgStepSize := c.orgSize[:step]
-		fitStepSize := c.fitSize[:step]
-		recuRange(orgStepSize, nil, func(orgStepPos []int) {
-			intsAddTo(fitStepPos, orgStepPos, padStep)
-			if !sizeBound(fitStepPos, fitStepSize) {
-				return
-			}
-			orgPad, fitPad := 0, 0
-			if pad < 0 {
-				orgPad -= pad
-			} else {
-				fitPad += pad
-			}
-
-			orgIdx := idxExpend(idxExpend(posIdx(orgStepPos, orgStepSize), orgPad, c.orgSize[step]), 0, c.orgSize[step+1])
-			fitIdx := idxExpend(idxExpend(posIdx(fitStepPos, fitStepSize), fitPad, c.fitSize[step]), 0, c.fitSize[step+1])
-			sliceVecCopy(fitVec, vec, fitIdx, orgIdx, offset)
-		})
-	}
-	slipRowIdx := 0
-	coreStepSize := c.coreSize[:step]
-	coreStepOffset := c.coreSize[step] * cnt
-	fitStepSize := c.fitSize[:step]
-	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
-		slipRow := ret.RowView(slipRowIdx).(*mat.VecDense)
-		slipRowIdx += 1
-		startStepPos := startPos[:step]
-		startStepOffset := startPos[step]
-		recuRange(coreStepSize, nil, func(coreStepPos []int) {
-			intsAddTo(fitStepPos, coreStepPos, startStepPos)
-			fitIdx := idxExpend(idxExpend(posIdx(fitStepPos, fitStepSize), startStepOffset, c.fitSize[step]), 0, c.fitSize[step+1])
-			slipIdx := idxExpend(idxExpend(posIdx(coreStepPos, coreStepSize), 0, c.coreSize[step]), 0, c.coreSize[step+1])
-			sliceVecCopy(slipRow, fitVec, slipIdx, fitIdx, coreStepOffset)
-		})
-	})
+	c.PackTo(ret, vec)
 	return ret
 }
 
 func (c *ConvPacker) UnPack(vec *mat.Dense) *mat.VecDense {
-	fitVec := mat.NewVecDense(c.fitSizeSum, nil)
-	cnt := c.orgSize[len(c.orgSize)-1]
-	step := len(c.orgSize) - 2
-	slipRowIdx := 0
-	coreStepSize := c.coreSize[:step]
-	coreStepOffset := c.coreSize[step] * cnt
-	fitStepSize := c.fitSize[:step]
-	fitStepPos := make([]int, step)
-	recuRange(intsAddConst(1, intsSub(c.fitSize, c.coreSize)), c.stride, func(startPos []int) {
-		slipRow := vec.RowView(slipRowIdx).(*mat.VecDense)
-		slipRowIdx += 1
-		startStepPos := startPos[:step]
-		startStepOffset := startPos[step]
-		recuRange(coreStepSize, nil, func(coreStepPos []int) {
-			intsAddTo(fitStepPos, coreStepPos, startStepPos)
-			fitIdx := idxExpend(idxExpend(posIdx(fitStepPos, fitStepSize), startStepOffset, c.fitSize[step]), 0, c.fitSize[step+1])
-			slipIdx := idxExpend(idxExpend(posIdx(coreStepPos, coreStepSize), 0, c.coreSize[step]), 0, c.coreSize[step+1])
-			fitRow := fitVec.SliceVec(fitIdx, fitIdx+coreStepOffset).(*mat.VecDense)
-			fitRow.AddVec(fitRow, slipRow.SliceVec(slipIdx, slipIdx+coreStepOffset))
-		})
-	})
-	retVec := fitVec
-	if !intsEqual(c.orgSize, c.fitSize) {
-		retVec = mat.NewVecDense(c.orgSizeSum, nil)
-		padStep, pad := c.paddingLeft[:step], c.paddingLeft[step]
-		offset := intsMin([]int{c.orgSize[step], c.fitSize[step]}) * cnt
-		orgStepSize := c.orgSize[:step]
-		fitStepSize := c.fitSize[:step]
-		recuRange(orgStepSize, nil, func(orgStepPos []int) {
-			intsAddTo(fitStepPos, orgStepPos, padStep)
-			if !sizeBound(fitStepPos, fitStepSize) {
-				return
-			}
-			orgPad, fitPad := 0, 0
-			if pad < 0 {
-				orgPad -= pad
-			} else {
-				fitPad += pad
-			}
-			orgIdx := idxExpend(idxExpend(posIdx(orgStepPos, orgStepSize), orgPad, c.orgSize[step]), 0, c.orgSize[step+1])
-			fitIdx := idxExpend(idxExpend(posIdx(fitStepPos, fitStepSize), fitPad, c.fitSize[step]), 0, c.fitSize[step+1])
-			sliceVecCopy(retVec, fitVec, orgIdx, fitIdx, offset)
-		})
-	}
-	return retVec
+	ret := mat.NewVecDense(c.orgSizeSum, nil)
+	c.UnPackTo(ret, vec)
+	return ret
 }
 
-func (c *ConvPacker) FoldBatches(org, fld *mat.Dense, cb func(data *mat.VecDense) *mat.Dense) *mat.Dense {
+func (c *ConvPacker) PackTo(dst *mat.Dense, vec *mat.VecDense) {
+	step := c.info.step
+	fitVec := vec
+	if c.info.needFit {
+		fitVec = mat.NewVecDense(c.fitSizeSum, nil)
+		common.RecuRange(c.orgSize, c.info.fitStride, func(orgPos []int) {
+			common.IntsAddTo(c.info.fitPos, orgPos, c.info.pads)
+			if common.SizeBound(c.info.fitPos, c.fitSize) {
+				copy(c.info.orgPos, orgPos)
+				if c.info.pad < 0 {
+					c.info.orgPos[step] = -c.info.pad
+				} else {
+					c.info.fitPos[step] = c.info.pad
+				}
+				orgIdx := common.PosIdx(c.info.orgPos, c.orgSize)
+				fitIdx := common.PosIdx(c.info.fitPos, c.fitSize)
+				sliceVecCopy(fitVec, vec, fitIdx, orgIdx, c.info.padOffset)
+			}
+		})
+	}
+
+	slipRowIdx := 0
+	common.RecuRange(c.info.kerCnt, c.stride, func(startPos []int) {
+		slipRow := dst.RowView(slipRowIdx).(*mat.VecDense)
+		slipRowIdx += 1
+		startOffset := startPos[step]
+		copy(c.info.kerStartPos[:step], startPos[:step])
+		common.RecuRange(c.coreSize, c.info.kerStride, func(corePos []int) {
+			common.IntsAddTo(c.info.fitPos, corePos, c.info.kerStartPos)
+			c.info.fitPos[step] = startOffset
+			fitIdx := common.PosIdx(c.info.fitPos, c.fitSize)
+			slipIdx := common.PosIdx(corePos, c.coreSize)
+			sliceVecCopy(slipRow, fitVec, slipIdx, fitIdx, c.info.kerOffset)
+		})
+	})
+}
+
+func (c *ConvPacker) UnPackTo(dst *mat.VecDense, vec *mat.Dense) {
+	step := c.info.step
+	fitVec := dst
+	if c.info.needFit {
+		fitVec = mat.NewVecDense(c.fitSizeSum, nil)
+	}
+	slipRowIdx := 0
+	common.RecuRange(c.info.kerCnt, c.stride, func(startPos []int) {
+		slipRow := vec.RowView(slipRowIdx).(*mat.VecDense)
+		slipRowIdx += 1
+		startOffset := startPos[step]
+		copy(c.info.kerStartPos[:step], startPos[:step])
+		common.RecuRange(c.coreSize, c.info.kerStride, func(corePos []int) {
+			common.IntsAddTo(c.info.fitPos, corePos, c.info.kerStartPos)
+			c.info.fitPos[step] = startOffset
+			fitIdx := common.PosIdx(c.info.fitPos, c.fitSize)
+			slipIdx := common.PosIdx(corePos, c.coreSize)
+			sliceVecAdd(fitVec, slipRow, fitIdx, slipIdx, c.info.kerOffset)
+		})
+	})
+
+	if c.info.needFit {
+		common.RecuRange(c.orgSize, c.info.fitStride, func(orgPos []int) {
+			common.IntsAddTo(c.info.fitPos, orgPos, c.info.pads)
+			if common.SizeBound(c.info.fitPos, c.fitSize) {
+				copy(c.info.orgPos, orgPos)
+				if c.info.pad < 0 {
+					c.info.orgPos[step] = -c.info.pad
+				} else {
+					c.info.fitPos[step] = c.info.pad
+				}
+				orgIdx := common.PosIdx(c.info.orgPos, c.orgSize)
+				fitIdx := common.PosIdx(c.info.fitPos, c.fitSize)
+				sliceVecCopy(dst, fitVec, orgIdx, fitIdx, c.info.padOffset)
+			}
+		})
+	}
+}
+
+func (c *ConvPacker) FoldBatches(org, fld *mat.Dense, cb func(dst *mat.Dense, src *mat.VecDense)) {
 	_, batch := org.Dims()
 	fldRow, fldCol := fld.Dims()
 	fldBatch := fldRow / batch
@@ -322,13 +258,12 @@ func (c *ConvPacker) FoldBatches(org, fld *mat.Dense, cb func(data *mat.VecDense
 		if cb == nil {
 			sliceFld.Copy(org.ColView(j).(*mat.VecDense))
 		} else {
-			sliceFld.Copy(cb(org.ColView(j).(*mat.VecDense)))
+			cb(sliceFld, org.ColView(j).(*mat.VecDense))
 		}
 	}
-	return fld
 }
 
-func (c *ConvPacker) UnfoldBatches(org, fld *mat.Dense, cb func(data *mat.Dense) *mat.VecDense) *mat.Dense {
+func (c *ConvPacker) UnfoldBatches(org, fld *mat.Dense, cb func(dst *mat.VecDense, src *mat.Dense)) {
 	_, batch := org.Dims()
 	fldRow, fldCol := fld.Dims()
 	fldBatch := fldRow / batch
@@ -337,10 +272,10 @@ func (c *ConvPacker) UnfoldBatches(org, fld *mat.Dense, cb func(data *mat.Dense)
 		if cb == nil {
 			org.SetCol(j, sliceFld.RawMatrix().Data)
 		} else {
-			org.SetCol(j, cb(sliceFld).RawVector().Data)
+			col := org.ColView(j).(*mat.VecDense)
+			cb(col, sliceFld)
 		}
 	}
-	return org
 }
 
 type MatColPicker struct {
@@ -359,7 +294,7 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	_, c := data.Dims()
 	searchStride := append([]int{}, m.size...)
 	searchStride[m.pickDim] = 1
-	rangStride := intsAddConst(1, make([]int, len(m.size)))
+	rangStride := common.IntsAddConst(1, make([]int, len(m.size)))
 	rangStride[m.pickDim] = m.size[m.pickDim]
 	newColSize := append([]int{}, m.size...)
 	newColSize[m.pickDim] = c
@@ -367,14 +302,14 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	newPos := make([]int, len(m.size))
 	for i := 0; i < c; i++ {
 		oldCol := data.ColView(i)
-		recuRange(m.size, searchStride, func(startPos []int) {
+		common.RecuRange(m.size, searchStride, func(startPos []int) {
 			newCol := dst.ColView(startPos[m.pickDim]).(*mat.VecDense)
-			recuRange(m.size, rangStride, func(rangPos []int) {
-				intsAddTo(pos, startPos, rangPos)
-				oldIdx := posIdx(pos, m.size)
+			common.RecuRange(m.size, rangStride, func(rangPos []int) {
+				common.IntsAddTo(pos, startPos, rangPos)
+				oldIdx := common.PosIdx(pos, m.size)
 				copy(newPos, pos)
 				newPos[m.pickDim] = i
-				newIdx := posIdx(newPos, newColSize)
+				newIdx := common.PosIdx(newPos, newColSize)
 				newCol.SetVec(newIdx, oldCol.AtVec(oldIdx))
 			})
 		})
@@ -386,7 +321,7 @@ func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
 	_, c := data.Dims()
 	searchStride := append([]int{}, m.size...)
 	searchStride[m.pickDim] = 1
-	retData := mat.NewDense(intsProd(searchStride)*c, m.size[m.pickDim], nil)
+	retData := mat.NewDense(common.IntsProd(searchStride)*c, m.size[m.pickDim], nil)
 	m.PickTo(retData, data)
 	return retData
 }

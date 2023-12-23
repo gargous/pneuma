@@ -91,7 +91,7 @@ func (m *ModelBuilder) Build() *nn.Model {
 			model.AddLayer(conv.opt, conv.lays...)
 		}
 	}
-	fsize := append([]int{intsProd(csize)}, m.fsize...)
+	fsize := append([]int{common.IntsProd(csize)}, m.fsize...)
 	rest := len(m.fsize) - len(m.fulls)
 	for i := 0; i < rest; i++ {
 		m.fulls = append(m.fulls, &ModelMiniBuilder{})
