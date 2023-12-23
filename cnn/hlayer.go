@@ -14,91 +14,87 @@ type iHLayerOupt interface {
 
 // w b均为展开状态，每列一个卷积核
 type HLayerConv struct {
-	c        *ConvPacker
-	w        *mat.Dense
-	b        *mat.Dense
-	dw       *mat.Dense
-	db       *mat.Dense
-	ouptSize []int
-	packX    *mat.Dense
+	C     *ConvPacker
+	W     *mat.Dense
+	B     *mat.Dense
+	DW    *mat.Dense
+	DB    *mat.Dense
+	PackX *mat.Dense
+	param ConvKernalParam
 }
 
-func NewHLayerConv(inputSize, core, stride []int, padding bool) *HLayerConv {
-	coreCnt := core[len(core)-1]
-	ret := &HLayerConv{}
-	ret.c = NewConvPacker(
-		inputSize,
-		core[:len(core)-1],
-		stride,
-		padding,
-	)
-	ret.b = mat.NewDense(ret.c.slipCntSum, coreCnt, nil)
-	ret.w = mat.NewDense(ret.c.coreSizeSum, coreCnt, nil)
-	ret.ouptSize = append(ret.c.slipCnt[:len(ret.c.slipCnt)-1], coreCnt)
-	ret.w.Apply(func(i, j int, v float64) float64 {
+func NewHLayerConv(param ConvKernalParam) *HLayerConv {
+	return &HLayerConv{param: param}
+}
+
+func (l *HLayerConv) InitSize(size []int) []int {
+	coreCnt := l.param.size[len(l.param.size)-1]
+	l.param.size = l.param.size[:len(l.param.size)-1]
+	l.C = NewConvPacker(size, l.param)
+	l.B = mat.NewDense(l.C.slipCntSum, coreCnt, nil)
+	l.DB = mat.NewDense(l.C.slipCntSum, coreCnt, nil)
+	l.W = mat.NewDense(l.C.coreSizeSum, coreCnt, nil)
+	l.W.Apply(func(i, j int, v float64) float64 {
 		return rand.Float64() - 0.5
-	}, ret.w)
-	return ret
+	}, l.W)
+	l.DW = mat.NewDense(l.C.coreSizeSum, coreCnt, nil)
+	return append(l.C.slipCnt[:len(l.C.slipCnt)-1], coreCnt)
 }
 
 func (l *HLayerConv) Forward(x *mat.Dense) (y *mat.Dense) {
 	batch := x.RawMatrix().Cols
-	wr, _ := l.w.Dims()
-	br, bc := l.b.Dims()
+	wr, _ := l.W.Dims()
+	br, bc := l.B.Dims()
 	packX := mat.NewDense(br*batch, wr, nil)
-	l.c.FoldBatches(x, packX, l.c.Pack)
+	l.C.FoldBatches(x, packX, l.C.Pack)
 	packY := mat.NewDense(br*batch, bc, nil)
+	l.PackX = packX
 
-	packY.Mul(packX, l.w)
+	packY.Mul(packX, l.W)
 	blen := br * bc
 	packYData := packY.RawMatrix().Data
 	for j := 0; j < len(packYData); j += blen {
 		sliceY := mat.NewDense(br, bc, packYData[j:j+blen])
-		sliceY.Add(sliceY, l.b)
+		sliceY.Add(sliceY, l.B)
 	}
-	l.packX = packX
 
 	y = mat.NewDense(br*bc, batch, nil)
-	l.c.UnfoldBatches(y, packY, nil)
+	l.C.UnfoldBatches(y, packY, nil)
 	return
 }
 
 func (l *HLayerConv) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	batch := dy.RawMatrix().Cols
-	wr, wc := l.w.Dims()
-	br, bc := l.b.Dims()
-	l.dw = mat.NewDense(wr, wc, nil)
-	l.db = mat.NewDense(br, bc, nil)
+	wr, _ := l.W.Dims()
+	br, bc := l.B.Dims()
+	l.DW.Zero()
+	l.DB.Zero()
 	packDy := mat.NewDense(br*batch, bc, nil)
-	l.c.FoldBatches(dy, packDy, nil)
+	l.C.FoldBatches(dy, packDy, nil)
 	packDx := mat.NewDense(br*batch, wr, nil)
 
-	l.dw.Mul(l.packX.T(), packDy)
+	l.DW.Mul(l.PackX.T(), packDy)
 	blen := br * bc
 	packDyData := packDy.RawMatrix().Data
 	for j := 0; j < len(packDyData); j += blen {
 		sliceDy := mat.NewDense(br, bc, packDyData[j:j+blen])
-		l.db.Add(l.db, sliceDy)
+		l.DB.Add(l.DB, sliceDy)
 	}
-	packDx.Mul(packDy, l.w.T())
+	packDx.Mul(packDy, l.W.T())
 
-	dx = mat.NewDense(l.c.orgSizeSum, batch, nil)
-	l.c.UnfoldBatches(dx, packDx, l.c.UnPack)
+	dx = mat.NewDense(l.C.orgSizeSum, batch, nil)
+	l.C.UnfoldBatches(dx, packDx, l.C.UnPack)
 	return
 }
 
 func (l *HLayerConv) Optimize() (datas, deltas []mat.Matrix) {
 	datas = []mat.Matrix{
-		l.w, l.b,
+		l.W, l.B,
 	}
 	deltas = []mat.Matrix{
-		l.dw, l.db,
+		l.DW, l.DB,
 	}
 	return
-}
-
-func (l *HLayerConv) OuptSize() []int {
-	return l.ouptSize
 }
 
 type HLayerDimBatchNorm struct {
@@ -106,11 +102,15 @@ type HLayerDimBatchNorm struct {
 	batch  *nn.HLayerBatchNorm
 }
 
-func NewHLayerConvBatchNorm(inputSize []int, minstd, momentum float64) *HLayerDimBatchNorm {
+func NewHLayerConvBatchNorm(minstd, momentum float64) *HLayerDimBatchNorm {
 	return &HLayerDimBatchNorm{
-		picker: NewMatColPicker(inputSize, len(inputSize)-1),
-		batch:  nn.NewHLayerBatchNorm(minstd, momentum),
+		batch: nn.NewHLayerBatchNorm(minstd, momentum),
 	}
+}
+
+func (l *HLayerDimBatchNorm) InitSize(size []int) []int {
+	l.picker = NewMatColPicker(size, len(size)-1)
+	return size
 }
 
 func (l *HLayerDimBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -135,22 +135,19 @@ func (l *HLayerDimBatchNorm) Optimize() (datas, deltas []mat.Matrix) {
 type HLayerMaxPooling struct {
 	c        *ConvPacker
 	inptSize []int
-	ouptSize []int
 	slips    []*mat.Dense
+	param    ConvKernalParam
 }
 
-func NewHLayerMaxPooling(inputSize, core, stride []int, padding bool) *HLayerMaxPooling {
-	ret := &HLayerMaxPooling{}
-	inptCnt := inputSize[len(inputSize)-1]
-	ret.c = NewConvPacker(
-		inputSize,
-		core,
-		stride,
-		padding,
-	)
-	ret.ouptSize = append(ret.c.slipCnt[:len(ret.c.slipCnt)-1], inptCnt)
-	ret.inptSize = inputSize
-	return ret
+func NewHLayerMaxPooling(param ConvKernalParam) *HLayerMaxPooling {
+	return &HLayerMaxPooling{param: param}
+}
+
+func (l *HLayerMaxPooling) InitSize(size []int) []int {
+	inptCnt := size[len(size)-1]
+	l.c = NewConvPacker(size, l.param)
+	l.inptSize = size
+	return append(l.c.slipCnt[:len(l.c.slipCnt)-1], inptCnt)
 }
 
 func (l *HLayerMaxPooling) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -197,8 +194,4 @@ func (l *HLayerMaxPooling) Backward(dy *mat.Dense) (dx *mat.Dense) {
 		dy.SetCol(j, dyColMat.RawMatrix().Data)
 	}
 	return
-}
-
-func (l *HLayerMaxPooling) OuptSize() []int {
-	return l.ouptSize
 }

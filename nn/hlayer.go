@@ -14,28 +14,21 @@ type HLayerLinear struct {
 	dw *mat.Dense
 	db *mat.VecDense
 	x  *mat.Dense
+	Y  *mat.Dense
 }
 
-func NewHLayerLinear(r, c int) *HLayerLinear {
-	l := &HLayerLinear{}
+func NewHLayerLinear() *HLayerLinear {
+	return &HLayerLinear{}
+}
+
+func (l *HLayerLinear) InitSize(size []int) []int {
+	r, c := size[0], size[1]
 	l.w = mat.NewDense(r, c, nil)
 	l.b = mat.NewVecDense(r, nil)
 	l.w.Apply(func(i, j int, v float64) float64 {
 		return rand.Float64() - 0.5
 	}, l.w)
-	return l
-}
-
-func (l *HLayerLinear) Copy(src *HLayerLinear) {
-	l.w = mat.DenseCopyOf(src.w)
-	l.b = mat.VecDenseCopyOf(src.b)
-	if src.dw != nil {
-		l.dw = mat.DenseCopyOf(src.dw)
-		l.db = mat.VecDenseCopyOf(src.db)
-	}
-	if src.x != nil {
-		l.x = mat.DenseCopyOf(src.x)
-	}
+	return size
 }
 
 func (l *HLayerLinear) Dims() (r, c int) {
@@ -53,6 +46,7 @@ func (l *HLayerLinear) Forward(x *mat.Dense) (y *mat.Dense) {
 		y.SetCol(j, yCol.RawVector().Data)
 	}
 	l.x = x
+	l.Y = y
 	return
 }
 
@@ -100,25 +94,6 @@ func NewHLayerBatchNorm(minstd, momentum float64) *HLayerBatchNorm {
 	l.minstd = minstd
 	l.momentum = momentum
 	return l
-}
-
-func (l *HLayerBatchNorm) Copy(src *HLayerBatchNorm) {
-	if src.e != nil {
-		l.e = mat.VecDenseCopyOf(src.e)
-		l.v = mat.VecDenseCopyOf(src.v)
-		l.g = mat.VecDenseCopyOf(src.g)
-		l.b = mat.VecDenseCopyOf(src.b)
-	}
-	l.minstd = src.minstd
-	l.momentum = src.momentum
-	if src.dg != nil {
-		l.dg = mat.VecDenseCopyOf(src.dg)
-		l.db = mat.VecDenseCopyOf(src.db)
-	}
-	if src.sinverse != nil {
-		l.xhat = mat.DenseCopyOf(src.xhat)
-		l.sinverse = mat.VecDenseCopyOf(src.sinverse)
-	}
 }
 
 func (l *HLayerBatchNorm) forward(x, xsube *mat.Dense, e, v *mat.VecDense) (y, xhat *mat.Dense, sinverse *mat.VecDense) {

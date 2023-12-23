@@ -8,7 +8,6 @@ import (
 
 type layer struct {
 	hlayers   []common.IHLayer
-	ret       *mat.Dense
 	optimizer common.IOptimizer
 }
 
@@ -16,7 +15,6 @@ func (l *layer) forward(a *mat.Dense) *mat.Dense {
 	for i := 0; i < len(l.hlayers); i++ {
 		a = l.hlayers[i].Forward(a)
 	}
-	l.ret = a
 	return a
 }
 

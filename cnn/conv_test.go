@@ -9,9 +9,11 @@ import (
 func TestConvPacker1(t *testing.T) {
 	packer := NewConvPacker(
 		[]int{4, 3, 2},
-		[]int{2, 2},
-		[]int{1, 1},
-		true,
+		NewConvKParam(
+			[]int{2, 2},
+			[]int{1, 1},
+			true,
+		),
 	)
 	data := mat.NewVecDense(24, []float64{
 		1, 2, 3, 4, 5, 6,
@@ -46,9 +48,10 @@ func TestConvPacker1(t *testing.T) {
 func TestConvPacker2(t *testing.T) {
 	packer := NewConvPacker(
 		[]int{4, 3, 2},
-		[]int{2, 2},
-		[]int{2, 2},
-		true,
+		NewConvKParam([]int{2, 2},
+			[]int{2, 2},
+			true,
+		),
 	)
 	data := mat.NewVecDense(24, []float64{
 		1, 2, 3, 4, 5, 6,

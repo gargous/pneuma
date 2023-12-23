@@ -39,7 +39,9 @@ func (m *ModelBuilder) Build() *nn.Model {
 		r := m.size[i+1]
 
 		opt := m.optimizer()
-		hlayers := []common.IHLayer{nn.NewHLayerLinear(r, c)}
+		lay := nn.NewHLayerLinear()
+		lay.InitSize([]int{r, c})
+		hlayers := []common.IHLayer{lay}
 		for _, hlayer := range m.layers {
 			hlayers = append(hlayers, hlayer())
 		}

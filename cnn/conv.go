@@ -129,6 +129,20 @@ func intsSub(a, b []int) []int {
 	return ret
 }
 
+type ConvKernalParam struct {
+	size    []int
+	stride  []int
+	padding bool
+}
+
+func NewConvKParam(size, stride []int, padding bool) ConvKernalParam {
+	return ConvKernalParam{
+		size:    size,
+		stride:  stride,
+		padding: padding,
+	}
+}
+
 type ConvPacker struct {
 	orgSize     []int
 	orgSizeSum  int
@@ -142,13 +156,13 @@ type ConvPacker struct {
 	coreSizeSum int
 }
 
-func NewConvPacker(inputSize, core, stride []int, padding bool) *ConvPacker {
+func NewConvPacker(inputSize []int, param ConvKernalParam) *ConvPacker {
 	dim := len(inputSize)
 	inpCnt := inputSize[len(inputSize)-1]
 	ret := &ConvPacker{
 		orgSize:     inputSize,
-		coreSize:    append(core, inpCnt),
-		stride:      append(stride, inpCnt),
+		coreSize:    append(param.size, inpCnt),
+		stride:      append(param.stride, inpCnt),
 		paddingLeft: make([]int, dim),
 		fitSize:     make([]int, dim),
 	}
@@ -163,7 +177,7 @@ func NewConvPacker(inputSize, core, stride []int, padding bool) *ConvPacker {
 		iinp := inputSize[i]
 		icor := ret.coreSize[i]
 		istr := ret.stride[i]
-		pl, pr, slip := paddingCnt(iinp, icor, istr, padding)
+		pl, pr, slip := paddingCnt(iinp, icor, istr, param.padding)
 		ret.paddingLeft[i] = pl
 		slips[i] = slip
 		ret.fitSize[i] = inputSize[i] + pl + pr

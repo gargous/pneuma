@@ -32,36 +32,54 @@ func handwritten() {
 	valix, valiy := sample.StackSample(valiSamp, batch)
 
 	eng := cu.NewEngine()
+	b := cnn.NewModelBuilder(size, []int{len(labels)})
 
-	b := cnn.NewModelBuilder(size)
-	//b.ConvStd([]int{5, 5, 10}, []int{1, 1}, true)
-	//b.ConvStd([]int{3, 3, 20}, []int{1, 1}, true)
-	//b.ConvStd([]int{2, 2, 40}, []int{1, 1}, true)
+	/*
+		b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+			mmb.Lay(cnn.NewHLayerConv(cnn.NewConvKParam([]int{5, 5, 10}, []int{1, 1}, true0)))
+		})
+		b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+			mmb.Lay(cnn.NewHLayerConv(cnn.NewConvKParam([]int{3, 3, 20}, []int{1, 1}, true)))
+		})
+		b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+			mmb.Lay(cnn.NewHLayerConv(cnn.NewConvKParam([]int{2, 2, 40}, []int{1, 1}, true)))
+		})
+		b.COpt(func() common.IOptimizer {
+			return nn.NewOptNormal(learingRate)
+		})
+	*/
 
-	b.Conv(func(inpSize []int) common.IHLayer {
-		return cu.NewHLayerConv(eng, inpSize, []int{5, 5, 10}, []int{1, 1}, true)
+	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+		cal := cu.NewMatCaltor(eng)
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{5, 5, 10}, []int{1, 1}, true)))
+		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
-	b.Conv(func(inpSize []int) common.IHLayer {
-		return cu.NewHLayerConv(eng, inpSize, []int{3, 3, 20}, []int{1, 1}, true)
+	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+		cal := cu.NewMatCaltor(eng)
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{3, 3, 20}, []int{1, 1}, true)))
+		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
-	b.Conv(func(inpSize []int) common.IHLayer {
-		return cu.NewHLayerConv(eng, inpSize, []int{2, 2, 40}, []int{1, 1}, true)
+	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+		cal := cu.NewMatCaltor(eng)
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{2, 2, 40}, []int{1, 1}, true)))
+		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
-
-	b.FSize(len(labels))
-	b.CLayer(func(inpSize []int) common.IHLayer {
-		return cnn.NewHLayerConvBatchNorm(inpSize, batchNormMinSTD, batchNormMT)
+	b.CLay(func() common.IHLayer {
+		return cnn.NewHLayerConvBatchNorm(batchNormMinSTD, batchNormMT)
 	})
-	b.CLayer(func(inpSize []int) common.IHLayer { return nn.NewHLayerRelu() })
-	b.CLayer(func(inpSize []int) common.IHLayer {
-		return cnn.NewHLayerMaxPooling(inpSize, []int{2, 2}, []int{2, 2}, true)
+	b.CLay(func() common.IHLayer {
+		return nn.NewHLayerRelu()
 	})
-	b.FLayer(func() common.IHLayer { return nn.NewHLayerBatchNorm(batchNormMinSTD, batchNormMT) })
-	b.FLayer(func() common.IHLayer { return nn.NewHLayerRelu() })
+	b.CLay(func() common.IHLayer {
+		return cnn.NewHLayerMaxPooling(cnn.NewConvKParam([]int{2, 2}, []int{2, 2}, true))
+	})
+	b.FLay(func() common.IHLayer { return nn.NewHLayerLinear() })
+	b.FLay(func() common.IHLayer { return nn.NewHLayerBatchNorm(batchNormMinSTD, batchNormMT) })
+	b.FLay(func() common.IHLayer { return nn.NewHLayerRelu() })
 	//b.Optimizer(func() common.IOptimizer { return nn.NewOptMomentum(learingRate, optMT) })
 	//b.Optimizer(func() common.IOptimizer { return nn.NewOptNormal(learingRate) })
-	b.Optimizer(func() common.IOptimizer { return cu.NewOptNormal(learingRate) })
-	b.Target(func() common.ITarget { return nn.NewTarCE() })
+	b.FOpt(func() common.IOptimizer { return nn.NewOptNormal(learingRate) })
+	b.Tar(nn.NewTarCE())
 	m := b.Build()
 
 	lineChart := sample.NewLineChart("handwritten")

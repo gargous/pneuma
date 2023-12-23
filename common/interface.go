@@ -17,6 +17,11 @@ type IHLayerPredictor interface {
 	Predict(x *mat.Dense) (y *mat.Dense)
 }
 
+type IHLayerSizeIniter interface {
+	IHLayer
+	InitSize([]int) []int
+}
+
 type IOptimizer interface {
 	Update(datas, deltas []mat.Matrix)
 }

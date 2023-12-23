@@ -38,7 +38,7 @@ func main() {
 	builder.Target(func() common.ITarget { return nn.NewTarCE() })
 
 	m := builder.Build()
-	nn.NewIniSAE(m).Init(trainx)
+	dnn.NewIniSAE(m).Init(trainx)
 
 	lineChart := sample.NewLineChart("krk")
 	lineChart.Reg("acc_vali", "acc_test", "loss_train")

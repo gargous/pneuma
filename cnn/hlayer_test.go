@@ -8,11 +8,13 @@ import (
 
 func TestHLayerConv(t *testing.T) {
 	layer := NewHLayerConv(
-		[]int{4, 3, 2},
-		[]int{2, 2, 3},
-		[]int{2, 2},
-		true,
+		ConvKernalParam{
+			[]int{2, 2, 3},
+			[]int{2, 2},
+			true,
+		},
 	)
+	layer.InitSize([]int{4, 3, 2})
 	data := mat.NewVecDense(24, []float64{
 		1, 2, 3, 4, 5, 6,
 		7, 8, 9, 10, 11, 12,
@@ -34,11 +36,13 @@ func TestHLayerConv(t *testing.T) {
 }
 func TestHLayerMaxPooling(t *testing.T) {
 	layer := NewHLayerMaxPooling(
-		[]int{4, 3, 2},
-		[]int{2, 2},
-		[]int{2, 2},
-		true,
+		ConvKernalParam{
+			[]int{2, 2},
+			[]int{2, 2},
+			true,
+		},
 	)
+	layer.InitSize([]int{4, 3, 2})
 	x := mat.NewDense(24, 1, []float64{
 		1, 2, 3, 4, 5, 6,
 		7, 8, 9, 10, 11, 12,
