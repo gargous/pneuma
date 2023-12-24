@@ -57,7 +57,10 @@ func TestHLayerMaxPooling(t *testing.T) {
 	if !mat.Equal(ytar, y) {
 		t.Fatalf("maxpooling forward wrong need:\n%v\nbut:\n%v\n", ytar, y)
 	}
-	dy := mat.NewDense(8, 1, []float64{1, 2, 3, 4, 5, 6, 7, 8})
+	dy := mat.NewDense(8, 1, []float64{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+	})
 	dx := layer.Backward(dy)
 	dxtar := mat.NewDense(24, 1, []float64{
 		0, 0, 0, 0, 0, 0,
@@ -65,7 +68,7 @@ func TestHLayerMaxPooling(t *testing.T) {
 		0, 0, 0, 0, 0, 0,
 		0, 0, 5, 6, 7, 8,
 	})
-	if !mat.Equal(ytar, y) {
+	if !mat.Equal(dx, dxtar) {
 		t.Fatalf("maxpooling backword wrong need:\n%v\nbut:\n%v\n", dxtar, dx)
 	}
 }

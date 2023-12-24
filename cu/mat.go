@@ -187,15 +187,15 @@ func (d *MatCaltor) MulKSpan(dst, am, bm mat.Matrix, za, zb bool, kspan int) {
 			rpbf = pbf[ldb*lk:]
 		}
 		lk += rk
-		err := d.e.Do(func() error {
+		fun := func() error {
 			d.e.Dgemm(tA, tB, m, n, rk, 1, rpaf, lda, rpbf, ldb, 1, pcf, ldc)
 			return d.e.Err()
-		})
+		}
+		err := d.e.Do(fun)
 		if err != nil {
 			panic(err)
 		}
 	}
-
 }
 
 func (d *MatCaltor) Add(dst, src mat.Matrix) {
@@ -203,35 +203,38 @@ func (d *MatCaltor) Add(dst, src mat.Matrix) {
 }
 
 func (d *MatCaltor) AddSlice(dst, src mat.Matrix, dstFrom, srcFrom, length int) {
-	err := d.e.Do(func() error {
+	fun := func() error {
 		pyf := d.DeviceData(dst)[dstFrom:]
 		pxf := d.DeviceData(src)[srcFrom:]
 		d.e.Daxpy(length, 1, pxf, 1, pyf, 1)
 		return d.e.Err()
-	})
+	}
+	err := d.e.Do(fun)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
-	err := d.e.Do(func() error {
+	fun := func() error {
 		pyf := d.DeviceData(dst)
 		pxf := d.DeviceData(src)
 		d.e.Daxpy(len(pyf), alpha, pxf, 1, pyf, 1)
 		return d.e.Err()
-	})
+	}
+	err := d.e.Do(fun)
 	if err != nil {
 		panic(err)
 	}
 }
 
 func (d *MatCaltor) Scale(alpha float64, data mat.Matrix) {
-	err := d.e.Do(func() error {
+	fun := func() error {
 		pf := d.DeviceData(data)
 		d.e.Dscal(len(d.HostData(data)), alpha, pf, 1)
 		return d.e.Err()
-	})
+	}
+	err := d.e.Do(fun)
 	if err != nil {
 		panic(err)
 	}

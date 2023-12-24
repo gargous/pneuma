@@ -47,7 +47,7 @@ func main() {
 			m.Trains(trainx, trainy)
 		} else {
 			sampFreq := int(float64(len(trainx)) / samplingRate)
-			m.TrainTimes(trainx, trainy, func(trainTimes int) {
+			m.TrainTimes(trainx, trainy, func(trainTimes, spendMS int) {
 				if trainTimes%sampFreq == 0 {
 					vpred := m.Predict(valix[0])
 					tpred := m.Predict(testx[0])

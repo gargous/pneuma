@@ -152,6 +152,14 @@ func sliceVecCopy(dst, src *mat.VecDense, dstStart, srcStart, n int) {
 	imp.Dcopy(n, srcData, incSrc, dstData, incDst)
 }
 
+func sliceVecCopyToData(dst []float64, src *mat.VecDense, dstStart, srcStart, n int) {
+	incSrc := src.RawVector().Inc
+	dstData := dst[dstStart : dstStart+n]
+	srcData := sliceVec(src, srcStart, srcStart+n)
+	imp := blas64.Implementation()
+	imp.Dcopy(n, srcData, incSrc, dstData, 1)
+}
+
 func sliceVecAdd(dst, src *mat.VecDense, dstStart, srcStart, n int) {
 	incDst := dst.RawVector().Inc
 	incSrc := src.RawVector().Inc
@@ -256,7 +264,9 @@ func (c *ConvPacker) FoldBatches(org, fld *mat.Dense, cb func(dst *mat.Dense, sr
 	for j := 0; j < batch; j++ {
 		sliceFld := fld.Slice(j*fldBatch, j*fldBatch+fldBatch, 0, fldCol).(*mat.Dense)
 		if cb == nil {
-			sliceFld.Copy(org.ColView(j).(*mat.VecDense))
+			sliceFldData := sliceFld.RawMatrix().Data
+			orgCol := org.ColView(j).(*mat.VecDense)
+			sliceVecCopyToData(sliceFldData, orgCol, 0, 0, len(sliceFldData))
 		} else {
 			cb(sliceFld, org.ColView(j).(*mat.VecDense))
 		}

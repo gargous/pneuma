@@ -2,6 +2,7 @@ package nn
 
 import (
 	"pneuma/common"
+	"time"
 
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
@@ -168,13 +169,17 @@ func (m *Model) Trains(trainX, trainY []*mat.Dense) {
 	m.TrainTimes(trainX, trainY, nil)
 }
 
-func (m *Model) TrainTimes(trainX, trainY []*mat.Dense, oneTimes func(int)) {
+func (m *Model) TrainTimes(trainX, trainY []*mat.Dense, oneTimes func(int, int)) {
 	var trainTimes int
 	for i := 0; i < len(trainX); i++ {
+		var stTime time.Time
+		if oneTimes != nil {
+			stTime = time.Now()
+		}
 		x, y := trainX[i], trainY[i]
 		m.Train(x, y)
 		if oneTimes != nil {
-			oneTimes(trainTimes)
+			oneTimes(trainTimes, int(time.Now().Sub(stTime).Milliseconds()))
 			trainTimes++
 		}
 		if m.IsDone() {

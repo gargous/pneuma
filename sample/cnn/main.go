@@ -90,13 +90,13 @@ func handwritten() {
 			m.Trains(trainx, trainy)
 		} else {
 			sampFreq := int(float64(len(trainx)) / samplingRate)
-			m.TrainTimes(trainx, trainy, func(trainTimes int) {
+			m.TrainTimes(trainx, trainy, func(trainTimes, spendMS int) {
 				if trainTimes%sampFreq == 0 {
 					child := lineChart.Child(e)
 					vpred := m.Predicts(valix)
 					tpred := m.Predicts(testx)
 					child.Append(m.Accs(vpred, valiy), m.Accs(tpred, testy), m.LossLatest(), m.MeanLosses(vpred, valiy), m.MeanLosses(tpred, testy))
-					fmt.Printf("train at:%d, trainTimes:%d, test info :%s\n", e, trainTimes, child.Format(child.Len()-1))
+					fmt.Printf("train at:%d, trainTimes:%d, test info :%s, spend:%d\n", e, trainTimes, child.Format(child.Len()-1), spendMS)
 				}
 			})
 		}

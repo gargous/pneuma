@@ -5,7 +5,6 @@ import (
 	"pneuma/common"
 	"pneuma/nn"
 
-	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -134,11 +133,18 @@ func (l *HLayerDimBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	return l.picker.Pick(newDx)
 }
 
+type MaxPoolingCalInfo struct {
+	search []int
+	idxes  []int
+	cnt    int
+}
+
 type HLayerMaxPooling struct {
 	C        *ConvPacker
+	PackX    *mat.Dense
 	inptSize []int
-	slips    []*mat.Dense
 	param    ConvKernalParam
+	info     MaxPoolingCalInfo
 }
 
 func NewHLayerMaxPooling(param ConvKernalParam) *HLayerMaxPooling {
@@ -149,51 +155,54 @@ func (l *HLayerMaxPooling) InitSize(size []int) []int {
 	inptCnt := size[len(size)-1]
 	l.C = NewConvPacker(size, l.param)
 	l.inptSize = size
+	span := l.C.coreSizeSum / inptCnt
+	l.info = MaxPoolingCalInfo{
+		search: []int{span, inptCnt},
+		idxes:  make([]int, inptCnt),
+		cnt:    inptCnt,
+	}
 	return append(l.C.slipCnt[:len(l.C.slipCnt)-1], inptCnt)
 }
 
 func (l *HLayerMaxPooling) Forward(x *mat.Dense) (y *mat.Dense) {
 	batch := x.RawMatrix().Cols
-	cnt := l.inptSize[len(l.inptSize)-1]
-	y = mat.NewDense(l.C.slipCntSum*cnt, batch, nil)
-	l.slips = make([]*mat.Dense, batch)
-	for j := 0; j < batch; j++ {
-		xCol := x.ColView(j).(*mat.VecDense)
-		yCol := y.ColView(j).(*mat.VecDense)
-		slip := l.C.Pack(xCol)
-		newSlip := mat.NewDense(l.C.slipCntSum, l.C.coreSizeSum, nil)
-		common.RecuRange([]int{l.C.slipCntSum, cnt}, nil, func(pos []int) {
-			si, sj := pos[0], pos[1]
-			slipRow := slip.RowView(si).(*mat.VecDense)
-			newSlipRow := newSlip.RowView(si).(*mat.VecDense)
-			slipSlice := make([]float64, l.C.coreSizeSum/cnt)
-			for sk := 0; sk < len(slipSlice); sk++ {
-				xidx := common.IdxExpend(sk, sj, cnt)
-				slipSlice[sk] = slipRow.AtVec(xidx)
+	packX := mat.NewDense(l.C.slipCntSum*batch, l.C.coreSizeSum, nil)
+	packY := mat.NewDense(l.C.slipCntSum*batch, l.info.cnt, nil)
+	l.C.FoldBatches(x, packX, l.C.PackTo)
+	l.PackX = packX
+	for i := 0; i < l.C.slipCntSum*batch; i++ {
+		rowX := packX.RawRowView(i)
+		rowY := packY.RawRowView(i)
+		common.IntsSetConst(-1, l.info.idxes)
+		common.RecuRange(l.info.search, nil, func(pos []int) {
+			k := pos[len(pos)-1]
+			idx := common.PosIdx(pos, l.info.search)
+			if rowX[idx] > rowY[k] || l.info.idxes[k] < 0 {
+				l.info.idxes[k] = idx
+				rowY[k] = rowX[idx]
 			}
-			maxIdx := floats.MaxIdx(slipSlice)
-			yCol.SetVec(common.IdxExpend(si, sj, cnt), slipSlice[maxIdx])
-			newSlipRow.SetVec(common.IdxExpend(maxIdx, sj, cnt), 1)
+			rowX[idx] = 0
 		})
-		l.slips[j] = newSlip
+		for k := 0; k < l.info.cnt; k++ {
+			rowX[l.info.idxes[k]] = 1
+		}
 	}
+	y = mat.NewDense(l.C.slipCntSum*l.info.cnt, batch, nil)
+	l.C.UnfoldBatches(y, packY, nil)
 	return
 }
 
 func (l *HLayerMaxPooling) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	batch := dy.RawMatrix().Cols
-	cnt := l.inptSize[len(l.inptSize)-1]
-	dx = mat.NewDense(l.C.orgSizeSum, batch, nil)
-	for j := 0; j < batch; j++ {
-		dxCol := dx.ColView(j).(*mat.VecDense)
-		slip := l.slips[j]
-		dyColMat := mat.NewDense(l.C.slipCntSum, cnt, nil)
-		for k := 0; k < l.C.coreSizeSum/cnt; k++ {
-			slipSlice := slip.Slice(0, l.C.slipCntSum, k*cnt, k*cnt+cnt).(*mat.Dense)
-			slipSlice.MulElem(slipSlice, dyColMat)
-		}
-		dxCol.CopyVec(l.C.UnPack(slip))
-		dy.SetCol(j, dyColMat.RawMatrix().Data)
+	packDy := mat.NewDense(l.C.slipCntSum*batch, l.info.cnt, nil)
+	packDx := l.PackX
+	l.C.FoldBatches(dy, packDy, nil)
+	for j := 0; j < l.C.coreSizeSum; j++ {
+		colDy := packDy.ColView(j % l.info.cnt)
+		colDx := packDx.ColView(j).(*mat.VecDense)
+		colDx.MulElemVec(colDx, colDy)
 	}
+	dx = mat.NewDense(l.C.orgSizeSum, batch, nil)
+	l.C.UnfoldBatches(dx, packDx, l.C.UnPackTo)
 	return
 }
