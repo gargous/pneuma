@@ -95,17 +95,21 @@ func (l *HLayerConv) Optimize() (datas, deltas []mat.Matrix) {
 
 type HLayerDimBatchNorm struct {
 	*nn.HLayerBatchNorm
-	picker *MatColPicker
+	picker   *MatColPicker
+	batchDim int
 }
 
 func NewHLayerConvBatchNorm(minstd, momentum float64) *HLayerDimBatchNorm {
 	return &HLayerDimBatchNorm{
+		batchDim:        -1,
 		HLayerBatchNorm: nn.NewHLayerBatchNorm(minstd, momentum),
 	}
 }
 
 func (l *HLayerDimBatchNorm) InitSize(size []int) []int {
-	l.picker = NewMatColPicker(size, len(size)-1)
+	batchDim := (l.batchDim + len(size)) % len(size)
+	l.picker = NewMatColPicker(size, batchDim)
+	l.HLayerBatchNorm.InitSize([]int{size[batchDim]})
 	return size
 }
 

@@ -77,63 +77,56 @@ func (l *HLayerLinear) Optimize() (datas, deltas []mat.Matrix) {
 }
 
 type HLayerBatchNorm struct {
-	e        *mat.VecDense
-	v        *mat.VecDense
-	sinverse *mat.VecDense
-	g        *mat.VecDense
-	b        *mat.VecDense
-	dg       *mat.VecDense
-	db       *mat.VecDense
-	xhat     *mat.Dense
-	minstd   float64
-	momentum float64
+	E        *mat.VecDense
+	V        *mat.VecDense
+	SInverse *mat.VecDense
+	G        *mat.VecDense
+	B        *mat.VecDense
+	DG       *mat.VecDense
+	DB       *mat.VecDense
+	XHat     *mat.Dense
+	MinStd   float64
+	Momentum float64
 }
 
 func NewHLayerBatchNorm(minstd, momentum float64) *HLayerBatchNorm {
 	l := &HLayerBatchNorm{}
-	l.minstd = minstd
-	l.momentum = momentum
+	l.MinStd = minstd
+	l.Momentum = momentum
 	return l
 }
 
-func (l *HLayerBatchNorm) forward(x, xsube *mat.Dense, e, v *mat.VecDense) (y, xhat *mat.Dense, sinverse *mat.VecDense) {
-	r, c := x.Dims()
+func (l *HLayerBatchNorm) forward(xsube *mat.Dense, v *mat.VecDense) (y, xhat *mat.Dense, sinverse *mat.VecDense) {
+	r, c := xsube.Dims()
 	sinverse = mat.NewVecDense(r, nil)
 	for i := 0; i < r; i++ {
-		sinverse.SetVec(i, 1.0/math.Sqrt(v.AtVec(i)+l.minstd))
+		sinverse.SetVec(i, 1.0/math.Sqrt(v.AtVec(i)+l.MinStd))
 	}
 	y = mat.NewDense(r, c, nil)
 	xhat = mat.NewDense(r, c, nil)
 	for j := 0; j < c; j++ {
 		xSubeCol := xsube.ColView(j)
-		xHatCol := mat.NewVecDense(r, nil)
+		xHatCol := xhat.ColView(j).(*mat.VecDense)
 		xHatCol.MulElemVec(xSubeCol, sinverse)
-		xhat.SetCol(j, xHatCol.RawVector().Data)
-
-		yCol := mat.VecDenseCopyOf(xHatCol)
-		yCol.MulElemVec(yCol, l.g)
-		yCol.AddVec(yCol, l.b)
-		y.SetCol(j, yCol.RawVector().Data)
+		yCol := y.ColView(j).(*mat.VecDense)
+		yCol.MulElemVec(xHatCol, l.G)
+		yCol.AddVec(yCol, l.B)
 	}
 	return
 }
 
-func (l *HLayerBatchNorm) initOnData(x *mat.Dense) {
-	if l.e != nil {
-		return
-	}
-	r, _ := x.Dims()
-	l.e = mat.NewVecDense(r, nil)
-	l.v = mat.NewVecDense(r, nil)
-	l.g = mat.NewVecDense(r, nil)
-	floats.AddConst(1, l.g.RawVector().Data)
-	l.b = mat.NewVecDense(r, nil)
+func (l *HLayerBatchNorm) InitSize(size []int) []int {
+	r := size[0]
+	l.E = mat.NewVecDense(r, nil)
+	l.V = mat.NewVecDense(r, nil)
+	l.G = mat.NewVecDense(r, nil)
+	floats.AddConst(1, l.G.RawVector().Data)
+	l.B = mat.NewVecDense(r, nil)
+	return size
 }
 
 func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
-	l.initOnData(x)
-
 	e := mat.NewVecDense(r, nil)
 	v := mat.NewVecDense(r, nil)
 	for j := 0; j < c; j++ {
@@ -141,43 +134,36 @@ func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	}
 	e.ScaleVec(1.0/float64(c), e)
 	xsube := mat.NewDense(r, c, nil)
+	xSubeColSqual := mat.NewVecDense(r, nil)
 	for j := 0; j < c; j++ {
 		eCol := e
 		xCol := x.ColView(j)
-
-		xsubeCol := mat.NewVecDense(r, nil)
-		xsubeCol.SubVec(xCol, eCol)
-		xsube.SetCol(j, xsubeCol.RawVector().Data)
-
-		vCol := mat.NewVecDense(r, nil)
-		vCol.MulElemVec(xsubeCol, xsubeCol)
-		v.AddVec(v, vCol)
+		xSubeCol := xsube.ColView(j).(*mat.VecDense)
+		xSubeCol.SubVec(xCol, eCol)
+		xSubeColSqual.MulElemVec(xSubeCol, xSubeCol)
+		v.AddVec(v, xSubeColSqual)
 	}
 	v.ScaleVec(1.0/float64(c), v)
-
-	l.e.ScaleVec(1-l.momentum, l.e)
-	l.e.AddScaledVec(l.e, l.momentum, e)
-	l.v.ScaleVec(1-l.momentum, l.v)
-	l.v.AddScaledVec(l.v, l.momentum, v)
-
-	y, l.xhat, l.sinverse = l.forward(x, xsube, e, v)
+	l.E.ScaleVec(1-l.Momentum, l.E)
+	l.E.AddScaledVec(l.E, l.Momentum, e)
+	l.V.ScaleVec(1-l.Momentum, l.V)
+	l.V.AddScaledVec(l.V, l.Momentum, v)
+	y, l.XHat, l.SInverse = l.forward(xsube, v)
 	return
 }
 
 func (l *HLayerBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
-	e := l.e
-	v := l.v
+	e := l.E
+	v := l.V
 	xsube := mat.NewDense(r, c, nil)
 	for j := 0; j < c; j++ {
 		eCol := e
 		xCol := x.ColView(j)
-
-		xsubeCol := mat.NewVecDense(r, nil)
-		xsubeCol.SubVec(xCol, eCol)
-		xsube.SetCol(j, xsubeCol.RawVector().Data)
+		xSubeCol := xsube.ColView(j).(*mat.VecDense)
+		xSubeCol.SubVec(xCol, eCol)
 	}
-	y, _, _ = l.forward(x, xsube, e, v)
+	y, _, _ = l.forward(xsube, v)
 	return
 }
 
@@ -190,11 +176,11 @@ func (l *HLayerBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	for i := 0; i < xr; i++ {
 		dyRow := dy.RowView(i)
 		sumDyRow := mat.Sum(dyRow)
-		xhatRow := l.xhat.RowView(i)
+		xhatRow := l.XHat.RowView(i)
 		sumXhatDyRow := mat.Dot(dyRow, xhatRow)
-		si := l.sinverse.AtVec(i)
+		si := l.SInverse.AtVec(i)
 		//scaler = g * si / m
-		scaler := l.g.AtVec(i) * si / m
+		scaler := l.G.AtVec(i) * si / m
 		//d1 = m * dy
 		d1 := mat.VecDenseCopyOf(dyRow)
 		d1.ScaleVec(m, d1)
@@ -215,17 +201,17 @@ func (l *HLayerBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
 		//db = sum(dy)
 		db.SetVec(i, sumDyRow)
 	}
-	l.dg = dg
-	l.db = db
+	l.DG = dg
+	l.DB = db
 	return
 }
 
 func (l *HLayerBatchNorm) Optimize() (datas, deltas []mat.Matrix) {
 	datas = []mat.Matrix{
-		l.g, l.b,
+		l.G, l.B,
 	}
 	deltas = []mat.Matrix{
-		l.dg, l.db,
+		l.DG, l.DB,
 	}
 	return
 }
@@ -236,13 +222,6 @@ type HLayerSigmoid struct {
 
 func NewHLayerSigmoid() *HLayerSigmoid {
 	return &HLayerSigmoid{}
-}
-
-func (l *HLayerSigmoid) Copy(src *HLayerSigmoid) {
-	if src.y != nil {
-		l.y = &mat.Dense{}
-		l.y.CloneFrom(src.y)
-	}
 }
 
 func (l *HLayerSigmoid) Forward(x *mat.Dense) (y *mat.Dense) {
@@ -273,13 +252,6 @@ type HLayerRelu struct {
 
 func NewHLayerRelu() *HLayerRelu {
 	return &HLayerRelu{}
-}
-
-func (l *HLayerRelu) Copy(src *HLayerRelu) {
-	if src.phi != nil {
-		l.phi = &mat.Dense{}
-		l.phi.CloneFrom(src.phi)
-	}
 }
 
 func (l *HLayerRelu) Forward(x *mat.Dense) (y *mat.Dense) {

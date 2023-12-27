@@ -301,6 +301,38 @@ func NewMatColPicker(size []int, pickDim int) *MatColPicker {
 }
 
 func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
+	_, gridCnt := data.Dims()
+	gridC := common.IntsProd(m.size[m.pickDim:])
+	gridR := common.IntsProd(m.size[:m.pickDim])
+	gridCutC := common.IntsProd(m.size[m.pickDim+1:])
+	gridCutR := gridR
+	gridCutCnt := m.size[m.pickDim]
+	gridCutStacks := make([]*mat.Dense, gridCutCnt)
+	gridCSR := gridCutR
+	gridCSC := gridCutC * gridCnt
+	for j := 0; j < gridCnt; j++ {
+		grid := mat.NewDense(gridR, gridC, mat.Col(nil, j, data))
+		gcsIdx := j * gridCutC
+		for gcj := 0; gcj < gridCutCnt; gcj++ {
+			gcIdx := gcj * gridCutC
+			gridCut := grid.Slice(0, gridCutR, gcIdx, gcIdx+gridCutC).(*mat.Dense)
+			gcs := gridCutStacks[gcj]
+			if gcs == nil {
+				gcs = mat.NewDense(gridCSR, gridCSC, nil)
+			}
+			gcsSlice := gcs.Slice(0, gridCSR, gcsIdx, gcsIdx+gridCutC).(*mat.Dense)
+			gcsSlice.Copy(gridCut)
+			gridCutStacks[gcj] = gcs
+		}
+	}
+	for j := 0; j < gridCutCnt; j++ {
+		dst.SetCol(j, gridCutStacks[j].RawMatrix().Data)
+	}
+	m.size[m.pickDim] = gridCnt
+}
+
+/*
+func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	_, c := data.Dims()
 	searchStride := append([]int{}, m.size...)
 	searchStride[m.pickDim] = 1
@@ -309,7 +341,6 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	newColSize := append([]int{}, m.size...)
 	newColSize[m.pickDim] = c
 	pos := make([]int, len(m.size))
-	newPos := make([]int, len(m.size))
 	for i := 0; i < c; i++ {
 		oldCol := data.ColView(i)
 		common.RecuRange(m.size, searchStride, func(startPos []int) {
@@ -317,15 +348,15 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 			common.RecuRange(m.size, rangStride, func(rangPos []int) {
 				common.IntsAddTo(pos, startPos, rangPos)
 				oldIdx := common.PosIdx(pos, m.size)
-				copy(newPos, pos)
-				newPos[m.pickDim] = i
-				newIdx := common.PosIdx(newPos, newColSize)
+				pos[m.pickDim] = i
+				newIdx := common.PosIdx(pos, newColSize)
 				newCol.SetVec(newIdx, oldCol.AtVec(oldIdx))
 			})
 		})
 	}
 	m.size = newColSize
 }
+*/
 
 func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
 	_, c := data.Dims()

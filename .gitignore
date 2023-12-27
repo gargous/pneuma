@@ -1,4 +1,5 @@
 *.html
 *.exe
 *.bmp
+*.vscode
 resource/

@@ -22,13 +22,22 @@ type IMatCaltor interface {
 }
 
 type MatCaltor struct {
-	e        *Engine
-	datas    []mat.Matrix
-	dataPtrs []cu.DevicePtr
+	fSize      int
+	e          *Engine
+	scalars    []float64
+	scalarsPtr cu.DevicePtr
+	datas      []mat.Matrix
+	dataPtrs   []cu.DevicePtr
 }
 
 func NewMatCaltor(e *Engine) *MatCaltor {
-	return &MatCaltor{e: e}
+	fSize := int(unsafe.Sizeof(0.0))
+	scalars := make([]float64, 2)
+	scalarsPtr, err := e.Alloc(int64(fSize) * 2)
+	if err != nil {
+		panic(err)
+	}
+	return &MatCaltor{e: e, fSize: fSize, scalars: scalars, scalarsPtr: scalarsPtr}
 }
 
 func (d *MatCaltor) IdxOf(data mat.Matrix, datas []mat.Matrix) int {
@@ -48,16 +57,20 @@ func (d *MatCaltor) Pointer(a []float64) unsafe.Pointer {
 	return unsafe.Pointer(&a[0])
 }
 
-func (d *MatCaltor) DeviceDataByIdx(idx int) []float64 {
-	r, c := d.datas[idx].Dims()
-	size := r * c
-	ptr := d.dataPtrs[idx].Uintptr()
+func (d *MatCaltor) DeviceDataByDPtr(ptr cu.DevicePtr, size int) []float64 {
 	var data []float64
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
-	sh.Data = ptr
+	sh.Data = ptr.Uintptr()
 	sh.Len = size
 	sh.Cap = size
 	return data
+}
+
+func (d *MatCaltor) DeviceDataByIdx(idx int) []float64 {
+	r, c := d.datas[idx].Dims()
+	size := r * c
+	ptr := d.dataPtrs[idx]
+	return d.DeviceDataByDPtr(ptr, size)
 }
 
 func (d *MatCaltor) HostData(data mat.Matrix) []float64 {
@@ -74,14 +87,18 @@ func (d *MatCaltor) DeviceData(data mat.Matrix) []float64 {
 	return d.DeviceDataByIdx(d.Idx(data))
 }
 
-func (d *MatCaltor) Start(datas ...mat.Matrix) {
-	fsize := int(unsafe.Sizeof(0.0))
+func (d *MatCaltor) CopyTo(datas ...mat.Matrix) {
 	for i := 0; i < len(datas); i++ {
-		if d.Idx(datas[i]) >= 0 {
+		idx := d.Idx(datas[i])
+		data := d.HostData(datas[i])
+		if idx >= 0 {
+			err := d.e.CopyTo(d.dataPtrs[idx], d.Pointer(data), int64(len(data)*d.fSize))
+			if err != nil {
+				panic(err)
+			}
 			continue
 		}
-		data := d.HostData(datas[i])
-		p, err := d.e.AllocAndCopy(d.Pointer(data), int64(len(data)*fsize))
+		p, err := d.e.AllocAndCopy(d.Pointer(data), int64(len(data)*d.fSize))
 		if err != nil {
 			panic(err)
 		}
@@ -90,17 +107,29 @@ func (d *MatCaltor) Start(datas ...mat.Matrix) {
 	}
 }
 
-func (d *MatCaltor) End(datas ...mat.Matrix) {
-	fsize := int(unsafe.Sizeof(0.0))
+func (d *MatCaltor) CopyBack(datas ...mat.Matrix) {
 	for i := 0; i < len(datas); i++ {
 		idx := d.Idx(datas[i])
 		data := d.HostData(d.datas[idx])
 		dst := d.Pointer(data)
 		src := d.dataPtrs[idx]
-		err := d.e.CopyBack(dst, src, int64(len(data)*fsize))
+		err := d.e.CopyBack(dst, src, int64(len(data)*d.fSize))
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func (d *MatCaltor) CopyInDevice(dst, src mat.Matrix) {
+	dstIdx := d.Idx(dst)
+	srcIdx := d.Idx(src)
+	hostData := d.HostData(dst)
+	dstDev := d.dataPtrs[dstIdx]
+	srcDev := d.dataPtrs[srcIdx]
+	d.e.Memcpy(dstDev, srcDev, int64(len(hostData)*d.fSize))
+	err := d.e.Err()
+	if err != nil {
+		panic(err)
 	}
 }
 
@@ -117,7 +146,7 @@ func (d *MatCaltor) Clear(datas ...mat.Matrix) {
 }
 
 func (d *MatCaltor) Mul(dst, am, bm mat.Matrix, za, zb bool) {
-	d.MulKSpan(dst, am, bm, za, zb, 100)
+	d.MulKSpan(dst, am, bm, za, zb, 256)
 }
 
 func (d *MatCaltor) MulKSpan(dst, am, bm mat.Matrix, za, zb bool, kspan int) {
@@ -202,17 +231,74 @@ func (d *MatCaltor) Add(dst, src mat.Matrix) {
 	d.AddScaled(dst, 1, src)
 }
 
-func (d *MatCaltor) AddSlice(dst, src mat.Matrix, dstFrom, srcFrom, length int) {
+func (d *MatCaltor) AddScaledSliceInc(dst mat.Matrix, alpha float64, src mat.Matrix, dstFrom, dstInc, srcFrom, srcInc, length int) {
 	fun := func() error {
-		pyf := d.DeviceData(dst)[dstFrom:]
-		pxf := d.DeviceData(src)[srcFrom:]
-		d.e.Daxpy(length, 1, pxf, 1, pyf, 1)
+		y := d.DeviceData(dst)[dstFrom:]
+		x := d.DeviceData(src)[srcFrom:]
+		xinc := srcInc
+		yinc := dstInc
+		d.e.Daxpy(length, alpha, x, xinc, y, yinc)
 		return d.e.Err()
 	}
 	err := d.e.Do(fun)
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (d *MatCaltor) AccRow(stride, length int, cb func(dstFrom, dstInc, srcFrom, srcInc, length int)) {
+	for i := 0; i < length; i += stride {
+		cb(0, 1, i, 1, stride)
+	}
+}
+
+func (d *MatCaltor) AccCol(srcR, srcC int, cb func(dstFrom, dstInc, srcFrom, srcInc, length int)) {
+	r, c := srcR, srcC
+	for j := 0; j < c; j++ {
+		cb(0, 1, j, c, r)
+	}
+}
+
+func (d *MatCaltor) AddScaledOneByRow(dst mat.Matrix, alpha float64, rows mat.Matrix) {
+	r, c := dst.Dims()
+	dstLen := r * c
+	r, c = rows.Dims()
+	srcLen := r * c
+	d.AccRow(dstLen, srcLen, func(dstFrom, dstInc, srcFrom, srcInc, length int) {
+		d.AddScaledSliceInc(dst, alpha, rows, dstFrom, dstInc, srcFrom, srcInc, length)
+	})
+}
+
+func (d *MatCaltor) AddScaledRowByOne(dst mat.Matrix, alpha float64, one mat.Matrix) {
+	r, c := dst.Dims()
+	dstLen := r * c
+	r, c = one.Dims()
+	srcLen := r * c
+	d.AccRow(srcLen, dstLen, func(srcFrom, srcInc, dstFrom, dstInc, length int) {
+		d.AddScaledSliceInc(dst, alpha, one, dstFrom, dstInc, srcFrom, srcInc, length)
+	})
+}
+
+func (d *MatCaltor) AddScaledOneByCol(dst mat.Matrix, alpha float64, cols mat.Matrix) {
+	r, c := cols.Dims()
+	d.AccCol(r, c, func(dstFrom, dstInc, srcFrom, srcInc, length int) {
+		d.AddScaledSliceInc(dst, alpha, cols, dstFrom, dstInc, srcFrom, srcInc, length)
+	})
+}
+
+func (d *MatCaltor) AddScaledColByOne(dst mat.Matrix, alpha float64, one mat.Matrix) {
+	r, c := dst.Dims()
+	d.AccCol(r, c, func(srcFrom, srcInc, dstFrom, dstInc, length int) {
+		d.AddScaledSliceInc(dst, alpha, one, dstFrom, dstInc, srcFrom, srcInc, length)
+	})
+}
+
+func (d *MatCaltor) AddSliceInc(dst, src mat.Matrix, dstFrom, dstInc, srcFrom, srcInc, length int) {
+	d.AddScaledSliceInc(dst, 1, src, dstFrom, dstInc, srcFrom, srcInc, length)
+}
+
+func (d *MatCaltor) AddSlice(dst, src mat.Matrix, dstFrom, srcFrom, length int) {
+	d.AddSliceInc(dst, src, dstFrom, 1, srcFrom, 1, length)
 }
 
 func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
@@ -228,14 +314,78 @@ func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
 	}
 }
 
-func (d *MatCaltor) Scale(alpha float64, data mat.Matrix) {
+func (d *MatCaltor) ScaleSlice(alpha float64, data mat.Matrix, from, length int) {
 	fun := func() error {
-		pf := d.DeviceData(data)
-		d.e.Dscal(len(d.HostData(data)), alpha, pf, 1)
+		pf := d.DeviceData(data)[from:]
+		d.e.Dscal(length, alpha, pf, 1)
 		return d.e.Err()
 	}
 	err := d.e.Do(fun)
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (d *MatCaltor) Scale(alpha float64, data mat.Matrix) {
+	d.ScaleSlice(alpha, data, 0, len(d.HostData(data)))
+}
+
+func (d *MatCaltor) NormSliceInc(dst mat.Matrix, src mat.Matrix, dstFrom, srcFrom, srcInc, length int) {
+	fun := func() error {
+		y := d.DeviceData(dst)
+		x := d.DeviceData(src)[srcFrom:]
+		xinc := srcInc
+		y[dstFrom] = d.e.Dnrm2(length, x, xinc)
+		return d.e.Err()
+	}
+	err := d.e.Do(fun)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (d *MatCaltor) NormOneByRow(dst, rows mat.Matrix) {
+	r, c := rows.Dims()
+	srcLen := r * c
+	idx := 0
+	d.AccRow(c, srcLen, func(_, _, srcFrom, srcInc, length int) {
+		d.NormSliceInc(dst, rows, idx, srcFrom, srcInc, length)
+		idx++
+	})
+}
+
+func (d *MatCaltor) DotSliceInc(a, b mat.Matrix, dstFrom, aFrom, aInc, bFrom, bInc, length int) float64 {
+	ret := 0.0
+	fun := func() error {
+		aDev := d.DeviceData(a)[aFrom:]
+		bDev := d.DeviceData(b)[bFrom:]
+		ret = d.e.Ddot(length, aDev, aInc, bDev, bInc)
+		return d.e.Err()
+	}
+	err := d.e.Do(fun)
+	if err != nil {
+		panic(err)
+	}
+	return ret
+}
+
+func (d *MatCaltor) DotRowByRowToHost(dstInHost *mat.VecDense, rowsA, rowsB mat.Matrix) {
+	r, c := rowsA.Dims()
+	srcLen := r * c
+	idx := 0
+	d.AccRow(c, srcLen, func(_, _, srcFrom, srcInc, length int) {
+		val := d.DotSliceInc(rowsA, rowsB, idx, srcFrom, srcInc, srcFrom, srcInc, length)
+		dstInHost.SetVec(idx, val)
+		idx++
+	})
+}
+
+func (d *MatCaltor) MulElemColByOneHost(dst mat.Matrix, oneInHost *mat.VecDense) {
+	r, c := dst.Dims()
+	dstLen := r * c
+	idx := 0
+	d.AccRow(c, dstLen, func(srcFrom, srcInc, dstFrom, dstInc, length int) {
+		d.ScaleSlice(oneInHost.AtVec(idx), dst, dstFrom, length)
+		idx++
+	})
 }

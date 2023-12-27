@@ -179,7 +179,7 @@ func (m *Model) TrainTimes(trainX, trainY []*mat.Dense, oneTimes func(int, int))
 		x, y := trainX[i], trainY[i]
 		m.Train(x, y)
 		if oneTimes != nil {
-			oneTimes(trainTimes, int(time.Now().Sub(stTime).Milliseconds()))
+			oneTimes(trainTimes, int(time.Since(stTime).Milliseconds()))
 			trainTimes++
 		}
 		if m.IsDone() {
