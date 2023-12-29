@@ -1,6 +1,7 @@
 package cu
 
 import (
+	"pneuma/common"
 	"reflect"
 	"unsafe"
 
@@ -57,7 +58,7 @@ func (d *MatCaltor) Pointer(a []float64) unsafe.Pointer {
 	return unsafe.Pointer(&a[0])
 }
 
-func (d *MatCaltor) DeviceDataByDPtr(ptr cu.DevicePtr, size int) []float64 {
+func (d *MatCaltor) DeviceDataByPtr(ptr cu.DevicePtr, size int) []float64 {
 	var data []float64
 	sh := (*reflect.SliceHeader)(unsafe.Pointer(&data))
 	sh.Data = ptr.Uintptr()
@@ -70,7 +71,7 @@ func (d *MatCaltor) DeviceDataByIdx(idx int) []float64 {
 	r, c := d.datas[idx].Dims()
 	size := r * c
 	ptr := d.dataPtrs[idx]
-	return d.DeviceDataByDPtr(ptr, size)
+	return d.DeviceDataByPtr(ptr, size)
 }
 
 func (d *MatCaltor) HostData(data mat.Matrix) []float64 {
@@ -92,7 +93,7 @@ func (d *MatCaltor) CopyTo(datas ...mat.Matrix) {
 		idx := d.Idx(datas[i])
 		data := d.HostData(datas[i])
 		if idx >= 0 {
-			err := d.e.CopyTo(d.dataPtrs[idx], d.Pointer(data), int64(len(data)*d.fSize))
+			err := d.e.CopyToDevice(d.dataPtrs[idx], d.Pointer(data), int64(len(data)*d.fSize))
 			if err != nil {
 				panic(err)
 			}
@@ -113,7 +114,7 @@ func (d *MatCaltor) CopyBack(datas ...mat.Matrix) {
 		data := d.HostData(d.datas[idx])
 		dst := d.Pointer(data)
 		src := d.dataPtrs[idx]
-		err := d.e.CopyBack(dst, src, int64(len(data)*d.fSize))
+		err := d.e.CopyToHost(dst, src, int64(len(data)*d.fSize))
 		if err != nil {
 			panic(err)
 		}
@@ -126,8 +127,7 @@ func (d *MatCaltor) CopyInDevice(dst, src mat.Matrix) {
 	hostData := d.HostData(dst)
 	dstDev := d.dataPtrs[dstIdx]
 	srcDev := d.dataPtrs[srcIdx]
-	d.e.Memcpy(dstDev, srcDev, int64(len(hostData)*d.fSize))
-	err := d.e.Err()
+	err := d.e.CopyInDevice(dstDev, srcDev, int64(len(hostData)*d.fSize))
 	if err != nil {
 		panic(err)
 	}
@@ -217,10 +217,10 @@ func (d *MatCaltor) MulKSpan(dst, am, bm mat.Matrix, za, zb bool, kspan int) {
 		}
 		lk += rk
 		fun := func() error {
-			d.e.Dgemm(tA, tB, m, n, rk, 1, rpaf, lda, rpbf, ldb, 1, pcf, ldc)
-			return d.e.Err()
+			d.e.blas.Dgemm(tA, tB, m, n, rk, 1, rpaf, lda, rpbf, ldb, 1, pcf, ldc)
+			return d.e.blas.Err()
 		}
-		err := d.e.Do(fun)
+		err := d.e.blas.Do(fun)
 		if err != nil {
 			panic(err)
 		}
@@ -237,10 +237,10 @@ func (d *MatCaltor) AddScaledSliceInc(dst mat.Matrix, alpha float64, src mat.Mat
 		x := d.DeviceData(src)[srcFrom:]
 		xinc := srcInc
 		yinc := dstInc
-		d.e.Daxpy(length, alpha, x, xinc, y, yinc)
-		return d.e.Err()
+		d.e.blas.Daxpy(length, alpha, x, xinc, y, yinc)
+		return d.e.blas.Err()
 	}
-	err := d.e.Do(fun)
+	err := d.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
@@ -305,10 +305,10 @@ func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
 	fun := func() error {
 		pyf := d.DeviceData(dst)
 		pxf := d.DeviceData(src)
-		d.e.Daxpy(len(pyf), alpha, pxf, 1, pyf, 1)
-		return d.e.Err()
+		d.e.blas.Daxpy(len(pyf), alpha, pxf, 1, pyf, 1)
+		return d.e.blas.Err()
 	}
-	err := d.e.Do(fun)
+	err := d.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
@@ -317,10 +317,10 @@ func (d *MatCaltor) AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix) {
 func (d *MatCaltor) ScaleSlice(alpha float64, data mat.Matrix, from, length int) {
 	fun := func() error {
 		pf := d.DeviceData(data)[from:]
-		d.e.Dscal(length, alpha, pf, 1)
-		return d.e.Err()
+		d.e.blas.Dscal(length, alpha, pf, 1)
+		return d.e.blas.Err()
 	}
-	err := d.e.Do(fun)
+	err := d.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
@@ -335,10 +335,10 @@ func (d *MatCaltor) NormSliceInc(dst mat.Matrix, src mat.Matrix, dstFrom, srcFro
 		y := d.DeviceData(dst)
 		x := d.DeviceData(src)[srcFrom:]
 		xinc := srcInc
-		y[dstFrom] = d.e.Dnrm2(length, x, xinc)
-		return d.e.Err()
+		y[dstFrom] = d.e.blas.Dnrm2(length, x, xinc)
+		return d.e.blas.Err()
 	}
-	err := d.e.Do(fun)
+	err := d.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
@@ -359,10 +359,10 @@ func (d *MatCaltor) DotSliceInc(a, b mat.Matrix, dstFrom, aFrom, aInc, bFrom, bI
 	fun := func() error {
 		aDev := d.DeviceData(a)[aFrom:]
 		bDev := d.DeviceData(b)[bFrom:]
-		ret = d.e.Ddot(length, aDev, aInc, bDev, bInc)
-		return d.e.Err()
+		ret = d.e.blas.Ddot(length, aDev, aInc, bDev, bInc)
+		return d.e.blas.Err()
 	}
-	err := d.e.Do(fun)
+	err := d.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
@@ -388,4 +388,103 @@ func (d *MatCaltor) MulElemColByOneHost(dst mat.Matrix, oneInHost *mat.VecDense)
 		d.ScaleSlice(oneInHost.AtVec(idx), dst, dstFrom, length)
 		idx++
 	})
+}
+
+func (d *MatCaltor) OuterSliceInc(dst, a, b mat.Matrix, aFrom, aInc, bFrom, bInc, length int) {
+	m, n := dst.Dims()
+	fun := func() error {
+		aDev := d.DeviceData(a)[aFrom:]
+		bDev := d.DeviceData(b)[bFrom:]
+		yDev := d.DeviceData(dst)
+		d.e.blas.Dger(m, n, 1, aDev, aInc, bDev, bInc, yDev, length)
+		return d.e.blas.Err()
+	}
+	err := d.e.blas.Do(fun)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (d *MatCaltor) SVD(a, u, s, v mat.Matrix) {
+	m, n := a.Dims()
+	var lw int
+	fun := func() error {
+		lw = d.e.dn.DgesvdWork(m, n)
+		return d.e.dn.Err()
+	}
+	err := d.e.ctx.Do(fun)
+	if err != nil {
+		panic(err)
+	}
+	w := mat.NewVecDense(lw, nil)
+	rw := mat.NewVecDense(common.IntsMin(m, n)-1, nil)
+	iDev, err := d.e.Alloc(int64(unsafe.Sizeof(0)))
+	if err != nil {
+		panic(err)
+	}
+	d.CopyTo(w, rw)
+	la := m
+	lu := m
+	lv := n
+	fun = func() error {
+		aDev := d.DeviceData(a)
+		sDev := d.DeviceData(s)
+		uDev := d.DeviceData(u)
+		vDev := d.DeviceData(v)
+		wDev := d.DeviceData(w)
+		rwDev := d.DeviceData(rw)
+		var devInfo []int32
+		devInfoSlice := (*reflect.SliceHeader)(unsafe.Pointer(&devInfo))
+		devInfoSlice.Data = iDev.Uintptr()
+		devInfoSlice.Len = 1
+		devInfoSlice.Cap = 1
+		d.e.dn.Dgesvd(m, n, aDev, la, sDev, uDev, lu, vDev, lv, wDev, lw, rwDev, devInfo)
+		return d.e.dn.Err()
+	}
+	err = d.e.ctx.Do(fun)
+	if err != nil {
+		panic(err)
+	}
+	err = d.e.Free(iDev)
+	if err != nil {
+		panic(err)
+	}
+	d.Clear(w, rw)
+}
+
+func (d *MatCaltor) PCA(dst *mat.Dense, src mat.Matrix) {
+	r, c := src.Dims()
+	k, _ := dst.Dims()
+	e := mat.NewVecDense(r, nil)
+	alpha := 1.0 / float64(c)
+	xsube := mat.DenseCopyOf(src)
+	d.CopyTo(xsube, e)
+	d.AddScaledOneByCol(e, alpha, src)
+	d.AddScaledColByOne(xsube, -1, e)
+
+	covLen := common.IntsMin(r, c)
+	covMat := mat.NewDense(covLen, covLen, nil)
+	svdS := mat.NewVecDense(covLen, nil)
+	svdU := mat.NewDense(covLen, covLen, nil)
+	svdV := mat.NewDense(covLen, covLen, nil)
+	d.CopyTo(covMat, svdS, svdU, svdV)
+	d.Mul(covMat, xsube, xsube, false, true)
+	d.Scale(alpha, covMat)
+	d.SVD(covMat, svdU, svdS, svdV)
+	d.CopyBack(svdS, svdU)
+	d.Clear(xsube, e, covMat, svdS, svdU, svdV)
+	eigVecs := make([][][]float64, covLen)
+	for i := 0; i < covLen; i++ {
+		eigVecs[i] = [][]float64{
+			svdU.RawRowView(i),
+			{svdS.AtVec(i)},
+		}
+	}
+	eigMat := mat.NewDense(k, r, nil)
+	for i := 0; i < k; i++ {
+		eigMat.SetRow(i, eigVecs[i][0])
+	}
+	d.CopyTo(eigMat)
+	d.Mul(dst, eigMat, src, false, false)
+	d.Clear(eigMat)
 }

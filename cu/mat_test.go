@@ -423,10 +423,10 @@ func TestDenseCaltorCU20(t *testing.T) {
 	cal.CopyTo(a)
 	fun := func() error {
 		fa := cal.DeviceData(a)
-		ret.SetVec(0, cal.e.Dnrm2(4, fa, 1))
-		return cal.e.Err()
+		ret.SetVec(0, cal.e.blas.Dnrm2(4, fa, 1))
+		return cal.e.blas.Err()
 	}
-	err := e.Do(fun)
+	err := e.blas.Do(fun)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -442,10 +442,10 @@ func TestDenseCaltorCU20(t *testing.T) {
 	cal.CopyTo(b, ret2)
 	fun = func() error {
 		fa := cal.DeviceData(b)
-		ret2.SetVec(0, cal.e.Dnrm2(4, fa, 1))
-		return cal.e.Err()
+		ret2.SetVec(0, cal.e.blas.Dnrm2(4, fa, 1))
+		return cal.e.blas.Err()
 	}
-	e.Do(fun)
+	e.blas.Do(fun)
 	//cal.CopyBack(ret2)
 	if !mat.Equal(ret2, tar) {
 		t.Fatalf("mat Mul error need:\n%v\nbut:\n%v\n", mat.Formatted(tar), mat.Formatted(ret2))
@@ -597,15 +597,57 @@ func TestDenseCaltorCU42(t *testing.T) {
 	fun := func() error {
 		fa := cal.DeviceData(a)
 		fb := cal.DeviceData(b)
-		dst = cal.e.Ddot(2, fa, 1, fb, 1)
-		return cal.e.Err()
+		dst = cal.e.blas.Ddot(2, fa, 1, fb, 1)
+		return cal.e.blas.Err()
 	}
-	err := cal.e.Do(fun)
+	err := cal.e.blas.Do(fun)
 	if err != nil {
 		panic(err)
 	}
 	if tar != dst {
 		t.Fatalf("mat Mul error need:\n%v\nbut:\n%v\n", tar, dst)
 	}
+	e.Close()
+}
+
+func TestDenseCaltorCU50(t *testing.T) {
+	e := NewEngine()
+	cal := NewMatCaltor(e)
+	a := mat.NewDense(2, 2, []float64{
+		4, 4,
+		-3, 3,
+	})
+	u := mat.NewDense(2, 2, nil)
+	v := mat.NewDense(2, 2, nil)
+	s := mat.NewVecDense(2, nil)
+	cal.CopyTo(a, u, v, s)
+	cal.SVD(a, u, s, v)
+	cal.CopyBack(u, v, s)
+	tars := mat.NewVecDense(2, []float64{5.65685, 4.24264})
+	if !mat.EqualApprox(s, tars, 0.000001) {
+		t.Fatalf("mat Mul error need:\n%v\nbut:\n%v\nu:\n%v\nv:\n%v\n", mat.Formatted(s), mat.Formatted(tars), mat.Formatted(u), mat.Formatted(v))
+	}
+	cal.Clear(a, u, v, s)
+	e.Close()
+}
+
+func TestDenseCaltorCU51(t *testing.T) {
+	e := NewEngine()
+	cal := NewMatCaltor(e)
+	src := mat.NewDense(2, 5, []float64{
+		-1, -1, 0, 2, 0,
+		-2, 0, 0, 1, 1,
+	})
+	dst := mat.NewDense(1, 5, nil)
+	cal.CopyTo(dst, src)
+	cal.PCA(dst, src)
+	cal.CopyBack(dst)
+	tar := mat.NewDense(1, 5, []float64{
+		2.12132, 0.707107, 0, -2.12132, -0.707107,
+	})
+	if !mat.EqualApprox(dst, tar, 0.000001) {
+		t.Fatalf("mat Mul error need:\n%v\nbut:\n%v\n", mat.Formatted(tar), mat.Formatted(dst))
+	}
+	cal.Clear(dst, src)
 	e.Close()
 }

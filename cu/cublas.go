@@ -29,19 +29,6 @@ func trans2cublasTrans(t blas.Transpose) C.cublasOperation_t {
 	panic("Unreachable")
 }
 
-var cublasStatusString = map[cublas.Status]string{
-	cublas.Success:        "Success",
-	cublas.NotInitialized: "NotInitialized",
-	cublas.AllocFailed:    "AllocFailed",
-	cublas.InvalidValue:   "InvalidValue",
-	cublas.ArchMismatch:   "ArchMismatch",
-	cublas.MappingError:   "MappingError",
-	cublas.ExecFailed:     "ExecFailed",
-	cublas.InternalError:  "InternalError",
-	cublas.Unsupported:    "Unsupported",
-	cublas.LicenceError:   "LicenceError",
-}
-
 func cublasStatus(x C.cublasStatus_t) error {
 	err := cublas.Status(x)
 	if err == cublas.Success {
@@ -70,10 +57,7 @@ func cublasStatusKnown(x C.cublasStatus_t) error {
 type Cublas struct {
 	h C.cublasHandle_t
 	e error
-
 	cu.Context
-	dataOnDev bool
-
 	sync.Mutex
 }
 
@@ -274,4 +258,36 @@ func (impl *Cublas) Dgbmv(tA blas.Transpose, m, n, kl, ku int, alpha float64, a 
 		panic("blas: zero y index increment")
 	}
 	impl.e = cublasStatus(C.cublasDgbmv(C.cublasHandle_t(impl.h), trans2cublasTrans(tA), C.int(m), C.int(n), C.int(kl), C.int(ku), (*C.double)(&alpha), (*C.double)(&a[0]), C.int(lda), (*C.double)(&x[0]), C.int(incX), (*C.double)(&beta), (*C.double)(&y[0]), C.int(incY)))
+}
+
+// Dger performs the rank-one operation
+//
+//	A += alpha * x * y^T
+//
+// where A is an m×n dense matrix, x and y are vectors, and alpha is a scalar.
+func (impl *Cublas) Dger(m, n int, alpha float64, x []float64, incX int, y []float64, incY int, a []float64, lda int) {
+	// declared at cublasgen.h:1107:17 enum CUBLAS_STATUS { ... } cublasDger ...
+	if impl.e != nil {
+		return
+	}
+
+	if m < 0 {
+		panic("blas: m < 0")
+	}
+	if n < 0 {
+		panic("blas: n < 0")
+	}
+	if incX == 0 {
+		panic("blas: zero x index increment")
+	}
+	if incY == 0 {
+		panic("blas: zero y index increment")
+	}
+	if (incX > 0 && (m-1)*incX >= len(x)) || (incX < 0 && (1-m)*incX >= len(x)) {
+		panic("blas: x index out of range")
+	}
+	if (incY > 0 && (n-1)*incY >= len(y)) || (incY < 0 && (1-n)*incY >= len(y)) {
+		panic("blas: y index out of range")
+	}
+	impl.e = cublasStatus(C.cublasDger(C.cublasHandle_t(impl.h), C.int(m), C.int(n), (*C.double)(&alpha), (*C.double)(&x[0]), C.int(incX), (*C.double)(&y[0]), C.int(incY), (*C.double)(&a[0]), C.int(lda)))
 }

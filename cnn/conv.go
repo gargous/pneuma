@@ -331,33 +331,6 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	m.size[m.pickDim] = gridCnt
 }
 
-/*
-func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
-	_, c := data.Dims()
-	searchStride := append([]int{}, m.size...)
-	searchStride[m.pickDim] = 1
-	rangStride := common.IntsAddConst(1, make([]int, len(m.size)))
-	rangStride[m.pickDim] = m.size[m.pickDim]
-	newColSize := append([]int{}, m.size...)
-	newColSize[m.pickDim] = c
-	pos := make([]int, len(m.size))
-	for i := 0; i < c; i++ {
-		oldCol := data.ColView(i)
-		common.RecuRange(m.size, searchStride, func(startPos []int) {
-			newCol := dst.ColView(startPos[m.pickDim]).(*mat.VecDense)
-			common.RecuRange(m.size, rangStride, func(rangPos []int) {
-				common.IntsAddTo(pos, startPos, rangPos)
-				oldIdx := common.PosIdx(pos, m.size)
-				pos[m.pickDim] = i
-				newIdx := common.PosIdx(pos, newColSize)
-				newCol.SetVec(newIdx, oldCol.AtVec(oldIdx))
-			})
-		})
-	}
-	m.size = newColSize
-}
-*/
-
 func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
 	_, c := data.Dims()
 	searchStride := append([]int{}, m.size...)
