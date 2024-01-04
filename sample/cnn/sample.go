@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"pneuma/cnn"
+	"pneuma/data"
 	"pneuma/sample"
 	"strconv"
 
@@ -63,7 +63,7 @@ func makeHandWrittenSample(trainSamp, testSamp []sample.NNSample, labelCnt int) 
 		if err != nil {
 			panic(err)
 		}
-		x, oneSize := cnn.ImgToVecData(img, 1)
+		x, oneSize := data.ImgToVecData(img, 1)
 		if len(size) == 0 {
 			size = oneSize
 		}
@@ -94,7 +94,7 @@ func makeHandWrittenSample(trainSamp, testSamp []sample.NNSample, labelCnt int) 
 		if err != nil {
 			panic(err)
 		}
-		x, _ := cnn.ImgToVecData(img, 1)
+		x, _ := data.ImgToVecData(img, 1)
 		testSamp[i] = sample.NNSample{mat.NewVecDense(len(x), x), labels[labIndx]}
 		labIndx = (labIndx + 1) % len(labels)
 	}
@@ -114,7 +114,7 @@ func testHandWrittenSample(size []int, trainSamps ...sample.NNSample) {
 		if err != nil {
 			panic(err)
 		}
-		img := cnn.VecDataToImage(sampData.RawVector().Data, size)
+		img := data.VecDataToImage(sampData.RawVector().Data, size)
 		jpeg.Encode(file, img, &jpeg.Options{})
 	}
 }

@@ -10,35 +10,16 @@ import (
 	"gorgonia.org/cu"
 )
 
-type IMatCaltor interface {
-	Idx(data mat.Matrix) int
-	Pointer(a []float64) unsafe.Pointer
-	DeviceDataByIdx(idx int) []float64
-	HostData(data mat.Matrix) []float64
-	Start(datas ...mat.Matrix)
-	End(datas ...mat.Matrix)
-	Clear(datas ...mat.Matrix)
-
-	AddScaled(dst mat.Matrix, alpha float64, src mat.Matrix)
-}
-
 type MatCaltor struct {
-	fSize      int
-	e          *Engine
-	scalars    []float64
-	scalarsPtr cu.DevicePtr
-	datas      []mat.Matrix
-	dataPtrs   []cu.DevicePtr
+	fSize    int
+	e        *Engine
+	datas    []mat.Matrix
+	dataPtrs []cu.DevicePtr
 }
 
 func NewMatCaltor(e *Engine) *MatCaltor {
 	fSize := int(unsafe.Sizeof(0.0))
-	scalars := make([]float64, 2)
-	scalarsPtr, err := e.Alloc(int64(fSize) * 2)
-	if err != nil {
-		panic(err)
-	}
-	return &MatCaltor{e: e, fSize: fSize, scalars: scalars, scalarsPtr: scalarsPtr}
+	return &MatCaltor{e: e, fSize: fSize}
 }
 
 func (d *MatCaltor) IdxOf(data mat.Matrix, datas []mat.Matrix) int {
@@ -450,41 +431,4 @@ func (d *MatCaltor) SVD(a, u, s, v mat.Matrix) {
 		panic(err)
 	}
 	d.Clear(w, rw)
-}
-
-func (d *MatCaltor) PCA(dst *mat.Dense, src mat.Matrix) {
-	r, c := src.Dims()
-	k, _ := dst.Dims()
-	e := mat.NewVecDense(r, nil)
-	alpha := 1.0 / float64(c)
-	xsube := mat.DenseCopyOf(src)
-	d.CopyTo(xsube, e)
-	d.AddScaledOneByCol(e, alpha, src)
-	d.AddScaledColByOne(xsube, -1, e)
-
-	covLen := common.IntsMin(r, c)
-	covMat := mat.NewDense(covLen, covLen, nil)
-	svdS := mat.NewVecDense(covLen, nil)
-	svdU := mat.NewDense(covLen, covLen, nil)
-	svdV := mat.NewDense(covLen, covLen, nil)
-	d.CopyTo(covMat, svdS, svdU, svdV)
-	d.Mul(covMat, xsube, xsube, false, true)
-	d.Scale(alpha, covMat)
-	d.SVD(covMat, svdU, svdS, svdV)
-	d.CopyBack(svdS, svdU)
-	d.Clear(xsube, e, covMat, svdS, svdU, svdV)
-	eigVecs := make([][][]float64, covLen)
-	for i := 0; i < covLen; i++ {
-		eigVecs[i] = [][]float64{
-			svdU.RawRowView(i),
-			{svdS.AtVec(i)},
-		}
-	}
-	eigMat := mat.NewDense(k, r, nil)
-	for i := 0; i < k; i++ {
-		eigMat.SetRow(i, eigVecs[i][0])
-	}
-	d.CopyTo(eigMat)
-	d.Mul(dst, eigMat, src, false, false)
-	d.Clear(eigMat)
 }

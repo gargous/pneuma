@@ -51,17 +51,17 @@ func handwritten() {
 
 	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
 		cal := cu.NewMatCaltor(eng)
-		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{5, 5, 10}, []int{1, 1}, true)))
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{5, 5, 10}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
 	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
 		cal := cu.NewMatCaltor(eng)
-		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{3, 3, 20}, []int{1, 1}, true)))
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{3, 3, 20}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
 	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
 		cal := cu.NewMatCaltor(eng)
-		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{2, 2, 40}, []int{1, 1}, true)))
+		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{2, 2, 40}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
 	b.CLay(func() common.IHLayer {
@@ -71,7 +71,7 @@ func handwritten() {
 		return nn.NewHLayerRelu()
 	})
 	b.CLay(func() common.IHLayer {
-		return cnn.NewHLayerMaxPooling(cnn.NewConvKParam([]int{2, 2}, []int{2, 2}, true))
+		return cnn.NewHLayerMaxPooling(cnn.NewConvKParam([]int{2, 2}, []int{2, 2}, cnn.ConvKernalPadFit))
 	})
 	b.FLay(func() common.IHLayer { return nn.NewHLayerLinear() })
 	b.FLay(func() common.IHLayer { return nn.NewHLayerBatchNorm(batchNormMinSTD, batchNormMT) })

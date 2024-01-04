@@ -1,5 +1,7 @@
 package common
 
+import "image"
+
 func RecuRange(size, stride []int, cb func(pos []int)) {
 	if stride == nil {
 		stride = make([]int, len(size))
@@ -107,4 +109,27 @@ func IntsSub(a, b []int) []int {
 		ret[i] = a[i] - b[i]
 	}
 	return ret
+}
+
+type Rectangle struct {
+	image.Rectangle
+	Area float64
+}
+
+func Rect(x0, y0, x1, y1 int) Rectangle {
+	return rectByImR(image.Rect(x0, y0, x1, y1))
+}
+
+func rectByImR(r image.Rectangle) Rectangle {
+	size := r.Size()
+	return Rectangle{
+		Rectangle: r,
+		Area:      float64(size.X * size.Y),
+	}
+}
+
+func (r Rectangle) IOU(o Rectangle) float64 {
+	c := r.Union(o.Rectangle)
+	rc := rectByImR(c)
+	return rc.Area / (r.Area + o.Area - rc.Area)
 }

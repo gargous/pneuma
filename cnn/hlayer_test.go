@@ -11,7 +11,7 @@ func TestHLayerConv(t *testing.T) {
 		ConvKernalParam{
 			[]int{2, 2, 3},
 			[]int{2, 2},
-			true,
+			ConvKernalPadFit,
 		},
 	)
 	layer.InitSize([]int{4, 3, 2})
@@ -39,7 +39,7 @@ func TestHLayerMaxPooling(t *testing.T) {
 		ConvKernalParam{
 			[]int{2, 2},
 			[]int{2, 2},
-			true,
+			ConvKernalPadFit,
 		},
 	)
 	layer.InitSize([]int{4, 3, 2})

@@ -1,4 +1,4 @@
-package cnn
+package data
 
 import (
 	"image"

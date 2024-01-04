@@ -640,7 +640,8 @@ func TestDenseCaltorCU51(t *testing.T) {
 	})
 	dst := mat.NewDense(1, 5, nil)
 	cal.CopyTo(dst, src)
-	cal.PCA(dst, src)
+	pac := NewPCA(cal)
+	pac.ColMod(dst, src)
 	cal.CopyBack(dst)
 	tar := mat.NewDense(1, 5, []float64{
 		2.12132, 0.707107, 0, -2.12132, -0.707107,

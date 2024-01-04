@@ -12,7 +12,7 @@ func TestConvPacker1(t *testing.T) {
 		NewConvKParam(
 			[]int{2, 2},
 			[]int{1, 1},
-			true,
+			ConvKernalPadFit,
 		),
 	)
 	data := mat.NewVecDense(24, []float64{
@@ -50,7 +50,7 @@ func TestConvPacker2(t *testing.T) {
 		[]int{4, 3, 2},
 		NewConvKParam([]int{2, 2},
 			[]int{2, 2},
-			true,
+			ConvKernalPadFit,
 		),
 	)
 	data := mat.NewVecDense(24, []float64{

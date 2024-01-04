@@ -8,20 +8,29 @@ import (
 	"gonum.org/v1/gonum/mat"
 )
 
-func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
+func paddingCnt(size, core, stride int, padding ConvKernalPadding) (lp, rp, slip int) {
 	if core > size {
 		panic(fmt.Sprintf("paddingCnt need core bigger than size, now core=%d, size=%d", core, size))
 	}
-	slip = (size-core)/stride + 1
-	nopadSize := (slip-1)*stride + core
-	if nopadSize == size {
+	var nopadSize int
+	if padding == ConvKernalPadAll {
+		slip = (size-1)/stride + 1
+		rp = core / 2
+		lp = rp
 		return
+	} else {
+		slip = (size-core)/stride + 1
+		nopadSize := (slip-1)*stride + core
+		if nopadSize == size {
+			return
+		}
 	}
 	p := 0
-	if padding {
+	switch padding {
+	case ConvKernalPadFit:
 		p = nopadSize + stride - size
 		slip += 1
-	} else {
+	case ConvKernalPadNo:
 		p = nopadSize - size
 	}
 	lp = p / 2
@@ -29,13 +38,21 @@ func paddingCnt(size, core, stride int, padding bool) (lp, rp, slip int) {
 	return
 }
 
+type ConvKernalPadding int16
+
+const (
+	ConvKernalPadNo ConvKernalPadding = iota
+	ConvKernalPadFit
+	ConvKernalPadAll
+)
+
 type ConvKernalParam struct {
 	size    []int
 	stride  []int
-	padding bool
+	padding ConvKernalPadding
 }
 
-func NewConvKParam(size, stride []int, padding bool) ConvKernalParam {
+func NewConvKParam(size, stride []int, padding ConvKernalPadding) ConvKernalParam {
 	return ConvKernalParam{
 		size:    size,
 		stride:  stride,
