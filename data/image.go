@@ -4,40 +4,44 @@ import (
 	"image"
 	"image/color"
 	"pneuma/common"
+
+	"golang.org/x/image/draw"
 )
 
-func ImgToVecData(img image.Image, channel int) ([]float64, []int) {
+func ImgToVecData(img image.Image, size []int) []float64 {
 	b := img.Bounds().Size()
-	c := b.X
-	r := b.Y
-	m := channel
+	r, c, m := size[0], size[1], size[2]
+	if b.Y != r || b.X != c {
+		dst := image.NewRGBA(image.Rect(0, 0, c, r))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Src, nil)
+		img = dst
+	}
 	ret := make([]float64, c*r*m)
 	onecSize := []int{r, c}
-	onecSizeLen := common.IntsProd(onecSize)
+	cmod := color.RGBAModel
 	common.RecuRange(onecSize, nil, func(pos []int) {
 		i, j := pos[0], pos[1]
 		idx := common.PosIdx(pos, onecSize)
-		colr := img.At(j, i)
-		cr, cg, cb, ca := colr.RGBA()
+		colr := cmod.Convert(img.At(j, i)).(color.RGBA)
+		cr, cg, cb, ca := colr.R, colr.G, colr.B, colr.A
 		cs := []float64{float64(cr) / 255.0, float64(cg) / 255.0, float64(cb) / 255.0, float64(ca) / 255.0}
 		for k := 0; k < m; k++ {
-			ret[common.IdxExpend(k, idx, onecSizeLen)] = cs[k]
+			ret[common.IdxExpend(idx, k, m)] = cs[k]
 		}
 	})
-	return ret, append(onecSize, m)
+	return ret
 }
 
 func VecDataToImage(data []float64, size []int) image.Image {
 	r, c, m := size[0], size[1], size[2]
 	ret := image.NewRGBA(image.Rect(0, 0, c, r))
 	onecSize := size[:2]
-	onecSizeLen := common.IntsProd(onecSize)
 	common.RecuRange(onecSize, nil, func(pos []int) {
 		i, j := pos[0], pos[1]
 		idx := common.PosIdx(pos, onecSize)
 		cs := make([]uint8, m)
 		for k := 0; k < m; k++ {
-			cs[k] = uint8(data[common.IdxExpend(k, idx, onecSizeLen)] * 255.0)
+			cs[k] = uint8(data[common.IdxExpend(idx, k, m)] * 255.0)
 		}
 		switch m {
 		case 1:

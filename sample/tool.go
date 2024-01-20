@@ -37,22 +37,32 @@ func RandSample(trainSamp, testSamp []NNSample) (trainSampi, testSampi, valiSamp
 	return
 }
 
-func StackSample(trainSamp []NNSample, batch int) (trainx, trainy []*mat.Dense) {
+func StackSample(trainSamp []NNSample, batch int) (xmat, ymat []*mat.Dense) {
 	for i := batch; i < len(trainSamp); i += batch {
-		xrow := trainSamp[i].X.Len()
-		yrow := trainSamp[i].Y.Len()
-		x := mat.NewDense(xrow, batch, nil)
-		y := mat.NewDense(yrow, batch, nil)
 		cIdx := 0
+		maxXLen := 0
+		maxYLen := 0
 		for j := i - batch; j < i; j++ {
-			sx := trainSamp[j].X.RawVector().Data
-			sy := trainSamp[j].Y.RawVector().Data
-			x.SetCol(cIdx, sx)
-			y.SetCol(cIdx, sy)
+			sx := trainSamp[j].X
+			sy := trainSamp[j].Y
+			if maxXLen < sx.Len() {
+				maxXLen = sx.Len()
+			}
+			if maxYLen < sy.Len() {
+				maxYLen = sy.Len()
+			}
+		}
+		x := mat.NewDense(maxXLen, batch, nil)
+		y := mat.NewDense(maxYLen, batch, nil)
+		for j := i - batch; j < i; j++ {
+			sx := trainSamp[j].X
+			sy := trainSamp[j].Y
+			x.ColView(cIdx).(*mat.VecDense).CopyVec(sx)
+			y.ColView(cIdx).(*mat.VecDense).CopyVec(sy)
 			cIdx++
 		}
-		trainx = append(trainx, x)
-		trainy = append(trainy, y)
+		xmat = append(xmat, x)
+		ymat = append(ymat, y)
 	}
 	return
 }
@@ -81,6 +91,16 @@ func (l *LineChart) Append(val ...float64) {
 		key := l.key[i]
 		l.datas[key] = append(l.datas[key], val[i])
 	}
+}
+
+func (l *LineChart) Set(i int, val float64) {
+	datas := l.datas[l.key[i]]
+	datas[len(datas)-1] = val
+}
+
+func (l *LineChart) Get(i int) float64 {
+	datas := l.datas[l.key[i]]
+	return datas[len(datas)-1]
 }
 
 func (l *LineChart) Len() int {

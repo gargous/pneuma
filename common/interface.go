@@ -32,6 +32,8 @@ type IOptimizerCoLayer interface {
 }
 
 type ITarget interface {
+	Acc(pred, targ *mat.Dense) (acc float64)
 	Loss(pred, targ *mat.Dense) (y float64)
+	LossEach(pred, targ *mat.Dense) (loss *mat.Dense)
 	Backward() (dy *mat.Dense)
 }

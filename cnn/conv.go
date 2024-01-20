@@ -9,9 +9,6 @@ import (
 )
 
 func paddingCnt(size, core, stride int, padding ConvKernalPadding) (lp, rp, slip int) {
-	if core > size {
-		panic(fmt.Sprintf("paddingCnt need core bigger than size, now core=%d, size=%d", core, size))
-	}
 	var nopadSize int
 	if padding == ConvKernalPadAll {
 		slip = (size-1)/stride + 1
@@ -19,6 +16,9 @@ func paddingCnt(size, core, stride int, padding ConvKernalPadding) (lp, rp, slip
 		lp = rp
 		return
 	} else {
+		if core > size {
+			panic(fmt.Sprintf("paddingCnt need core bigger than size, now core=%d, size=%d", core, size))
+		}
 		slip = (size-core)/stride + 1
 		nopadSize := (slip-1)*stride + core
 		if nopadSize == size {
@@ -110,10 +110,16 @@ func NewConvPacker(inputSize []int, param ConvKernalParam) *ConvPacker {
 		iinp := inputSize[i]
 		icor := ret.coreSize[i]
 		istr := ret.stride[i]
-		pl, pr, slip := paddingCnt(iinp, icor, istr, param.padding)
-		ret.paddingLeft[i] = pl
-		slips[i] = slip
-		ret.fitSize[i] = inputSize[i] + pl + pr
+		if i == dim-1 {
+			ret.paddingLeft[i] = 0
+			slips[i] = 1
+			ret.fitSize[i] = inputSize[i]
+		} else {
+			pl, pr, slip := paddingCnt(iinp, icor, istr, param.padding)
+			ret.paddingLeft[i] = pl
+			slips[i] = slip
+			ret.fitSize[i] = inputSize[i] + pl + pr
+		}
 	}
 	ret.slipCnt = slips
 	ret.fitSizeSum = common.IntsProd(ret.fitSize)
@@ -305,20 +311,63 @@ func (c *ConvPacker) UnfoldBatches(org, fld *mat.Dense, cb func(dst *mat.VecDens
 	}
 }
 
-type MatColPicker struct {
+type MatPicker struct {
 	size    []int
 	pickDim int
+	dstDim  int
+	srcDim  int
 }
 
-func NewMatColPicker(size []int, pickDim int) *MatColPicker {
-	return &MatColPicker{
+func NewMatPicker(size []int, pickDim int) *MatPicker {
+	return &MatPicker{
 		size:    size,
 		pickDim: pickDim,
 	}
 }
 
-func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
-	_, gridCnt := data.Dims()
+func (m *MatPicker) SetMotion(dstDim, srcDim int) {
+	m.dstDim = dstDim
+	m.srcDim = srcDim
+}
+
+func (m *MatPicker) getter(data *mat.Dense) (gridData []float64, getter func(dst []float64, i int, a mat.Matrix) []float64) {
+	dr, dc := data.Dims()
+	switch m.srcDim {
+	case 0:
+		getter = mat.Row
+		gridData = make([]float64, dc)
+	case 1:
+		getter = mat.Col
+		gridData = make([]float64, dr)
+	}
+	return
+}
+
+func (m *MatPicker) setter(data *mat.Dense) func(j int, src []float64) {
+	switch m.dstDim {
+	case 0:
+		return data.SetRow
+	case 1:
+		return data.SetCol
+	}
+	return nil
+}
+
+func (m *MatPicker) gridCnt(data *mat.Dense) (cnt int) {
+	dr, dc := data.Dims()
+	switch m.srcDim {
+	case 0:
+		cnt = dr
+	case 1:
+		cnt = dc
+	}
+	return
+}
+
+func (m *MatPicker) PickTo(dst, data *mat.Dense) {
+	gridCnt := m.gridCnt(data)
+	gridData, getter := m.getter(data)
+	setter := m.setter(dst)
 	gridC := common.IntsProd(m.size[m.pickDim:])
 	gridR := common.IntsProd(m.size[:m.pickDim])
 	gridCutC := common.IntsProd(m.size[m.pickDim+1:])
@@ -328,7 +377,7 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 	gridCSR := gridCutR
 	gridCSC := gridCutC * gridCnt
 	for j := 0; j < gridCnt; j++ {
-		grid := mat.NewDense(gridR, gridC, mat.Col(nil, j, data))
+		grid := mat.NewDense(gridR, gridC, getter(gridData, j, data))
 		gcsIdx := j * gridCutC
 		for gcj := 0; gcj < gridCutCnt; gcj++ {
 			gcIdx := gcj * gridCutC
@@ -343,16 +392,21 @@ func (m *MatColPicker) PickTo(dst, data *mat.Dense) {
 		}
 	}
 	for j := 0; j < gridCutCnt; j++ {
-		dst.SetCol(j, gridCutStacks[j].RawMatrix().Data)
+		setter(j, gridCutStacks[j].RawMatrix().Data)
 	}
 	m.size[m.pickDim] = gridCnt
 }
 
-func (m *MatColPicker) Pick(data *mat.Dense) *mat.Dense {
-	_, c := data.Dims()
+func (m *MatPicker) Pick(data *mat.Dense) (retData *mat.Dense) {
 	searchStride := append([]int{}, m.size...)
 	searchStride[m.pickDim] = 1
-	retData := mat.NewDense(common.IntsProd(searchStride)*c, m.size[m.pickDim], nil)
+	cnt := m.gridCnt(data)
+	switch m.dstDim {
+	case 0:
+		retData = mat.NewDense(m.size[m.pickDim], common.IntsProd(searchStride)*cnt, nil)
+	case 1:
+		retData = mat.NewDense(common.IntsProd(searchStride)*cnt, m.size[m.pickDim], nil)
+	}
 	m.PickTo(retData, data)
 	return retData
 }

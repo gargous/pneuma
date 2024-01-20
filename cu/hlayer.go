@@ -5,6 +5,7 @@ import (
 	"pneuma/cnn"
 	"pneuma/nn"
 
+	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -104,7 +105,7 @@ func (l *HLayerBatchNorm) InitSize(size []int) []int {
 	return size
 }
 
-func (l *HLayerBatchNorm) forward(xsube *mat.Dense, s *mat.VecDense) (y, xhat *mat.Dense, sInverse *mat.VecDense) {
+func (l *HLayerBatchNorm) forward(xsube *mat.Dense, s *mat.VecDense) (y *mat.Dense, sInverse *mat.VecDense) {
 	r, c := xsube.Dims()
 	l.cal.CopyBack(s)
 	sInverse = mat.NewVecDense(s.Len(), nil)
@@ -113,10 +114,9 @@ func (l *HLayerBatchNorm) forward(xsube *mat.Dense, s *mat.VecDense) (y, xhat *m
 		sInverse.SetVec(i, alpha/(s.AtVec(i)+l.MinStd))
 	}
 	y = mat.NewDense(r, c, nil)
-	xhat = mat.DenseCopyOf(xsube)
-	l.cal.CopyTo(y, xhat)
-	l.cal.MulElemColByOneHost(xhat, sInverse)
-	l.cal.CopyInDevice(y, xhat)
+	l.cal.CopyTo(y)
+	l.cal.MulElemColByOneHost(xsube, sInverse)
+	l.cal.CopyInDevice(y, xsube)
 	l.cal.MulElemColByOneHost(y, l.G)
 	l.cal.AddScaledColByOne(y, 1, l.B)
 	return
@@ -125,9 +125,9 @@ func (l *HLayerBatchNorm) forward(xsube *mat.Dense, s *mat.VecDense) (y, xhat *m
 func (l *HLayerBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
 	l.cal.CopyTo(x)
 	l.cal.AddScaledColByOne(x, -1, l.E)
-	y, l.XHat, l.SInverse = l.forward(x, l.S)
+	y, l.SInverse = l.forward(x, l.S)
 	l.cal.CopyBack(y)
-	l.cal.Clear(x, y)
+	l.cal.Clear(y, x)
 	return
 }
 
@@ -135,9 +135,11 @@ func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
 	e := mat.NewVecDense(r, nil)
 	s := mat.NewVecDense(r, nil)
-	l.cal.CopyTo(e, s, x)
+	ones := mat.NewVecDense(r, nil)
 	alpha := 1.0 / float64(c)
-	l.cal.AddScaledOneByCol(e, alpha, x)
+	floats.AddConst(alpha, ones.RawVector().Data)
+	l.cal.CopyTo(e, s, x, ones)
+	l.cal.Mul(e, x, ones, false, false)
 	l.cal.AddScaledColByOne(x, -1, e)
 	l.cal.NormOneByRow(s, x)
 	l.cal.Scale(alpha, s)
@@ -145,9 +147,10 @@ func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	l.cal.AddScaled(l.E, l.Momentum, e)
 	l.cal.Scale(1-l.Momentum, l.S)
 	l.cal.AddScaled(l.S, l.Momentum, s)
-	y, l.XHat, l.SInverse = l.forward(x, s)
+	y, l.SInverse = l.forward(x, s)
+	l.XHat = x
 	l.cal.CopyBack(y)
-	l.cal.Clear(e, s, x, y)
+	l.cal.Clear(e, s, y, ones)
 	return
 }
 
@@ -189,7 +192,7 @@ func (l *HLayerBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
 
 type HLayerDimBatchNorm struct {
 	*HLayerBatchNorm
-	picker   *cnn.MatColPicker
+	picker   *cnn.MatPicker
 	batchDim int
 }
 
@@ -202,31 +205,31 @@ func NewHLayerConvBatchNorm(cal *MatCaltor, minstd, momentum float64) *HLayerDim
 
 func (l *HLayerDimBatchNorm) InitSize(size []int) []int {
 	batchDim := (l.batchDim + len(size)) % len(size)
-	l.picker = cnn.NewMatColPicker(size, batchDim)
+	l.picker = cnn.NewMatPicker(size, batchDim)
 	l.HLayerBatchNorm.InitSize([]int{size[batchDim]})
 	return size
 }
 
 func (l *HLayerDimBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newX := l.picker.Pick(x)
-	newXT := mat.DenseCopyOf(newX.T())
-	newYT := l.HLayerBatchNorm.Predict(newXT)
-	newY := mat.DenseCopyOf(newYT.T())
+	newY := l.HLayerBatchNorm.Predict(newX)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newY)
 }
 
 func (l *HLayerDimBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newX := l.picker.Pick(x)
-	newXT := mat.DenseCopyOf(newX.T())
-	newYT := l.HLayerBatchNorm.Forward(newXT)
-	newY := mat.DenseCopyOf(newYT.T())
+	newY := l.HLayerBatchNorm.Forward(newX)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newY)
 }
 
 func (l *HLayerDimBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newDy := l.picker.Pick(dy)
-	newDyT := mat.DenseCopyOf(newDy.T())
-	newDxT := l.HLayerBatchNorm.Backward(newDyT)
-	newDx := mat.DenseCopyOf(newDxT.T())
+	newDx := l.HLayerBatchNorm.Backward(newDy)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newDx)
 }

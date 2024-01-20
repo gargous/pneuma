@@ -6,26 +6,17 @@ import (
 )
 
 type ModelBuilder struct {
-	size      []int
-	layers    []func() common.IHLayer
-	optimizer func() common.IOptimizer
-	tar       func() common.ITarget
+	*nn.ModelBuilder
+	size []int
+	tar  func() common.ITarget
 }
 
 func NewModelBuilder() *ModelBuilder {
-	return &ModelBuilder{}
+	return &ModelBuilder{ModelBuilder: &nn.ModelBuilder{}}
 }
 
 func (m *ModelBuilder) Size(size ...int) {
 	m.size = size
-}
-
-func (m *ModelBuilder) Layer(layer func() common.IHLayer) {
-	m.layers = append(m.layers, func() common.IHLayer { return layer() })
-}
-
-func (m *ModelBuilder) Optimizer(opt func() common.IOptimizer) {
-	m.optimizer = opt
 }
 
 func (m *ModelBuilder) Target(tar func() common.ITarget) {
@@ -38,11 +29,11 @@ func (m *ModelBuilder) Build() *nn.Model {
 		c := m.size[i]
 		r := m.size[i+1]
 
-		opt := m.optimizer()
+		opt := m.Optimizer()
 		lay := nn.NewHLayerLinear()
 		lay.InitSize([]int{r, c})
 		hlayers := []common.IHLayer{lay}
-		for _, hlayer := range m.layers {
+		for _, hlayer := range m.Lays {
 			hlayers = append(hlayers, hlayer())
 		}
 		model.AddLayer(

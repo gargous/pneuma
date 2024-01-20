@@ -12,9 +12,7 @@ import (
 )
 
 func handwritten() {
-	go func() {
-		fmt.Println(http.ListenAndServe(":6060", nil))
-	}()
+
 	epoch := 16
 	batch := 16
 	samplingRate := 100.0
@@ -49,17 +47,17 @@ func handwritten() {
 		})
 	*/
 
-	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+	b.C(func(mmb *nn.ModelSample) {
 		cal := cu.NewMatCaltor(eng)
 		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{5, 5, 10}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
-	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+	b.C(func(mmb *nn.ModelSample) {
 		cal := cu.NewMatCaltor(eng)
 		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{3, 3, 20}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
 	})
-	b.C().Build(func(mmb *cnn.ModelMiniBuilder) {
+	b.C(func(mmb *nn.ModelSample) {
 		cal := cu.NewMatCaltor(eng)
 		mmb.Lay(cu.NewHLayerConv(cal, cnn.NewConvKParam([]int{2, 2, 40}, []int{1, 1}, cnn.ConvKernalPadFit)))
 		mmb.Opt(cu.NewOptNormal(cal, learingRate))
@@ -93,16 +91,16 @@ func handwritten() {
 			m.TrainTimes(trainx, trainy, func(trainTimes, spendMS int) {
 				if trainTimes%sampFreq == 0 {
 					child := lineChart.Child(e)
-					vpred := m.Predicts(valix)
-					tpred := m.Predicts(testx)
-					child.Append(m.Accs(vpred, valiy), m.Accs(tpred, testy), m.LossLatest(), m.MeanLosses(vpred, valiy), m.MeanLosses(tpred, testy))
+					vloss, vacc := m.Tests(valix, valiy)
+					tloss, tacc := m.Tests(testx, testy)
+					child.Append(vacc, tacc, m.LossLatest(), vloss, tloss)
 					fmt.Printf("train at:%d, trainTimes:%d, test info :%s, spend:%d\n", e, trainTimes, child.Format(child.Len()-1), spendMS)
 				}
 			})
 		}
-		vpred := m.Predicts(valix)
-		tpred := m.Predicts(testx)
-		lineChart.Append(m.Accs(vpred, valiy), m.Accs(tpred, testy), m.LossPopMean(), m.MeanLosses(vpred, valiy), m.MeanLosses(tpred, testy))
+		vloss, vacc := m.Tests(valix, valiy)
+		tloss, tacc := m.Tests(testx, testy)
+		lineChart.Append(vacc, tacc, m.LossPopMean(), vloss, tloss)
 		fmt.Printf("train at:%d, %s\n", e, lineChart.Format(lineChart.Len()-1))
 	}
 	fmt.Printf("train end\n")
@@ -110,5 +108,8 @@ func handwritten() {
 }
 
 func main() {
+	go func() {
+		fmt.Println(http.ListenAndServe(":6060", nil))
+	}()
 	handwritten()
 }

@@ -76,10 +76,11 @@ func TestConvPacker2(t *testing.T) {
 }
 
 func TestMatColPicker1(t *testing.T) {
-	picker := NewMatColPicker(
+	picker := NewMatPicker(
 		[]int{2, 3, 2},
 		2,
 	)
+	picker.SetMotion(1, 1)
 	data := mat.NewDense(12, 4, []float64{
 		10, 11, 12, 13,
 		14, 15, 16, 17,
@@ -131,10 +132,11 @@ func TestMatColPicker1(t *testing.T) {
 }
 
 func TestMatColPicker2(t *testing.T) {
-	picker := NewMatColPicker(
+	picker := NewMatPicker(
 		[]int{2, 3, 2},
 		1,
 	)
+	picker.SetMotion(1, 1)
 	data := mat.NewDense(12, 4, []float64{
 		10, 11, 12, 13,
 		14, 15, 16, 17,
@@ -174,5 +176,32 @@ func TestMatColPicker2(t *testing.T) {
 	retData := picker.Pick(newData)
 	if !mat.Equal(data, retData) {
 		t.Fatalf("pick return not right need:\n%v\nbut:\n%v\n", mat.Formatted(data), mat.Formatted(retData))
+	}
+}
+
+func TestMatColPicker3(t *testing.T) {
+	picker := NewMatPicker(
+		[]int{2, 2, 1},
+		1,
+	)
+	picker.SetMotion(0, 1)
+	data := mat.NewDense(4, 3, []float64{
+		10, 11, 12,
+		14, 15, 16,
+		18, 19, 20,
+		22, 23, 24,
+	})
+	newData := picker.Pick(data)
+	tarData := mat.NewDense(2, 6, []float64{
+		10, 11, 12, 18, 19, 20,
+		14, 15, 16, 22, 23, 24,
+	})
+	if !mat.Equal(tarData, newData) {
+		t.Fatalf("pick not right need:\n%v\nbut:\n%v\n", mat.Formatted(tarData), mat.Formatted(newData))
+	}
+	picker.SetMotion(1, 0)
+	newData = picker.Pick(newData)
+	if !mat.Equal(data, newData) {
+		t.Fatalf("pick not right need:\n%v\nbut:\n%v\n", mat.Formatted(data), mat.Formatted(newData))
 	}
 }

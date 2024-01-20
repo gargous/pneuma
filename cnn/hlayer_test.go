@@ -34,6 +34,40 @@ func TestHLayerConv(t *testing.T) {
 		t.Fatalf("backward not right need:r:%d,c:%d but:r:%d,c:%d\ny:\n%v\n", data.Len(), 1, dxr, dxc, mat.Formatted(dx))
 	}
 }
+func TestHLayerConv2(t *testing.T) {
+	layer := NewHLayerConv(
+		ConvKernalParam{
+			[]int{3, 3, 1},
+			[]int{1, 1},
+			ConvKernalPadAll,
+		},
+	)
+	layer.InitSize([]int{2, 2, 1})
+	data := mat.NewVecDense(4, []float64{
+		1, 2,
+		3, 4,
+	})
+	tar := mat.NewDense(4, 1, []float64{
+		5, 5,
+		5, 5,
+	})
+	layer.W.Apply(func(i, j int, v float64) float64 {
+		return 0.5
+	}, layer.W)
+	x := mat.NewDense(data.Len(), 1, data.RawVector().Data)
+	y := layer.Forward(x)
+	if !mat.Equal(y, tar) {
+		t.Fatalf("forward not right need:\n%v but:\n%v\n", mat.Formatted(tar), mat.Formatted(y))
+	}
+	dy := mat.NewDense(4, 1, []float64{
+		1, 1, 1, 1,
+	})
+	dx := layer.Backward(dy)
+	dxr, dxc := dx.Dims()
+	if dxr != data.Len() || dxc != 1 {
+		t.Fatalf("backward not right need:r:%d,c:%d but:r:%d,c:%d\ny:\n%v\n", data.Len(), 1, dxr, dxc, mat.Formatted(dx))
+	}
+}
 func TestHLayerMaxPooling(t *testing.T) {
 	layer := NewHLayerMaxPooling(
 		ConvKernalParam{

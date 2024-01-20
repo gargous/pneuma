@@ -1,6 +1,8 @@
 package common
 
-import "image"
+import (
+	"gonum.org/v1/gonum/mat"
+)
 
 func RecuRange(size, stride []int, cb func(pos []int)) {
 	if stride == nil {
@@ -65,6 +67,17 @@ func IntsMin(ints ...int) (ret int) {
 	return
 }
 
+func IntsMax(ints ...int) (ret int) {
+	midx := -1
+	for idx, v := range ints {
+		if midx < 0 || ret < v {
+			ret = v
+			midx = idx
+		}
+	}
+	return
+}
+
 func IntsProd(ints []int) (ret int) {
 	ret = 1
 	for _, v := range ints {
@@ -85,9 +98,9 @@ func IntsAdd(a, b []int) []int {
 	return ret
 }
 
-func IntsAddTo(src, a, b []int) {
+func IntsAddTo(dst, a, b []int) {
 	for i := 0; i < len(a); i++ {
-		src[i] = a[i] + b[i]
+		dst[i] = a[i] + b[i]
 	}
 }
 
@@ -111,25 +124,73 @@ func IntsSub(a, b []int) []int {
 	return ret
 }
 
-type Rectangle struct {
-	image.Rectangle
-	Area float64
+func IntsDiv(a, b []int) []int {
+	ret := make([]int, len(a))
+	IntsDivTo(ret, a, b)
+	return ret
 }
 
-func Rect(x0, y0, x1, y1 int) Rectangle {
-	return rectByImR(image.Rect(x0, y0, x1, y1))
-}
-
-func rectByImR(r image.Rectangle) Rectangle {
-	size := r.Size()
-	return Rectangle{
-		Rectangle: r,
-		Area:      float64(size.X * size.Y),
+func IntsDivTo(dst, a, b []int) {
+	for i := 0; i < len(a); i++ {
+		dst[i] = a[i] / b[i]
 	}
 }
 
-func (r Rectangle) IOU(o Rectangle) float64 {
-	c := r.Union(o.Rectangle)
-	rc := rectByImR(c)
-	return rc.Area / (r.Area + o.Area - rc.Area)
+func IntsSum(a []int) (ret int) {
+	for i := 0; i < len(a); i++ {
+		ret += a[i]
+	}
+	return
+}
+
+func IntsToF64s(a []int) []float64 {
+	ret := make([]float64, len(a))
+	IntsToF64sTo(ret, a)
+	return ret
+}
+
+func IntsToF64sTo(dst []float64, src []int) {
+	for i := 0; i < len(src); i++ {
+		dst[i] = float64(src[i])
+	}
+}
+
+func NewEDense(length int) *mat.Dense {
+	ret := mat.NewDense(length, length, nil)
+	for i := 0; i < length; i++ {
+		ret.Set(i, i, 1)
+	}
+	return ret
+}
+
+func TDenseSetMove(dst *mat.Dense, moveVec mat.Matrix, from int) {
+	r, c := dst.Dims()
+	for i := 0; i < r-1; i++ {
+		dst.Set(i, c-1, moveVec.At(from+i, 0))
+	}
+}
+
+func TDenseSetScale(dst *mat.Dense, scaleVec mat.Matrix, from int) {
+	r, _ := dst.Dims()
+	for i := 0; i < r-1; i++ {
+		dst.Set(i, i, scaleVec.At(from+i, 0))
+	}
+}
+
+func DenseFiltRow(src *mat.Dense, includes []int) *mat.Dense {
+	_, oldC := src.Dims()
+	ret := mat.NewDense(len(includes), oldC, nil)
+	for i := 0; i < len(includes); i++ {
+		ret.SetRow(i, src.RawRowView(includes[i]))
+	}
+	return ret
+}
+
+func OneHotVecs(cnt int) []*mat.VecDense {
+	ret := make([]*mat.VecDense, cnt)
+	for i := 0; i < cnt; i++ {
+		ret[i] = mat.NewVecDense(cnt, nil)
+		ret[i].SetVec(i, 1)
+	}
+	return ret
 }

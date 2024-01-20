@@ -96,20 +96,19 @@ func NewHLayerBatchNorm(minstd, momentum float64) *HLayerBatchNorm {
 	return l
 }
 
-func (l *HLayerBatchNorm) forward(xsube *mat.Dense, v *mat.VecDense) (y, xhat *mat.Dense, sinverse *mat.VecDense) {
+func (l *HLayerBatchNorm) forward(xsube *mat.Dense, v *mat.VecDense) (y, xhat *mat.Dense) {
 	r, c := xsube.Dims()
-	sinverse = mat.NewVecDense(r, nil)
 	for i := 0; i < r; i++ {
-		sinverse.SetVec(i, 1.0/math.Sqrt(v.AtVec(i)+l.MinStd))
+		l.SInverse.SetVec(i, 1.0/math.Sqrt(v.AtVec(i)+l.MinStd))
 	}
 	y = mat.NewDense(r, c, nil)
 	xhat = mat.NewDense(r, c, nil)
 	for j := 0; j < c; j++ {
-		xSubeCol := xsube.ColView(j)
-		xHatCol := xhat.ColView(j).(*mat.VecDense)
-		xHatCol.MulElemVec(xSubeCol, sinverse)
+		xsubeCol := xsube.ColView(j)
+		xhatCol := xhat.ColView(j).(*mat.VecDense)
+		xhatCol.MulElemVec(xsubeCol, l.SInverse)
 		yCol := y.ColView(j).(*mat.VecDense)
-		yCol.MulElemVec(xHatCol, l.G)
+		yCol.MulElemVec(xhatCol, l.G)
 		yCol.AddVec(yCol, l.B)
 	}
 	return
@@ -122,6 +121,7 @@ func (l *HLayerBatchNorm) InitSize(size []int) []int {
 	l.G = mat.NewVecDense(r, nil)
 	floats.AddConst(1, l.G.RawVector().Data)
 	l.B = mat.NewVecDense(r, nil)
+	l.SInverse = mat.NewVecDense(r, nil)
 	return size
 }
 
@@ -129,26 +129,25 @@ func (l *HLayerBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
 	r, c := x.Dims()
 	e := mat.NewVecDense(r, nil)
 	v := mat.NewVecDense(r, nil)
-	for j := 0; j < c; j++ {
-		e.AddVec(e, x.ColView(j))
-	}
-	e.ScaleVec(1.0/float64(c), e)
+	ones := mat.NewVecDense(c, nil)
+	alpha := 1.0 / float64(c)
+	floats.AddConst(alpha, ones.RawVector().Data)
+	e.MulVec(x, ones)
 	xsube := mat.NewDense(r, c, nil)
-	xSubeColSqual := mat.NewVecDense(r, nil)
+	xsubeSqual := mat.NewDense(r, c, nil)
 	for j := 0; j < c; j++ {
 		eCol := e
 		xCol := x.ColView(j)
-		xSubeCol := xsube.ColView(j).(*mat.VecDense)
-		xSubeCol.SubVec(xCol, eCol)
-		xSubeColSqual.MulElemVec(xSubeCol, xSubeCol)
-		v.AddVec(v, xSubeColSqual)
+		xsubeCol := xsube.ColView(j).(*mat.VecDense)
+		xsubeCol.SubVec(xCol, eCol)
 	}
-	v.ScaleVec(1.0/float64(c), v)
+	xsubeSqual.MulElem(xsube, xsube)
+	v.MulVec(xsubeSqual, ones)
 	l.E.ScaleVec(1-l.Momentum, l.E)
 	l.E.AddScaledVec(l.E, l.Momentum, e)
 	l.V.ScaleVec(1-l.Momentum, l.V)
 	l.V.AddScaledVec(l.V, l.Momentum, v)
-	y, l.XHat, l.SInverse = l.forward(xsube, v)
+	y, l.XHat = l.forward(xsube, v)
 	return
 }
 
@@ -160,10 +159,10 @@ func (l *HLayerBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
 	for j := 0; j < c; j++ {
 		eCol := e
 		xCol := x.ColView(j)
-		xSubeCol := xsube.ColView(j).(*mat.VecDense)
-		xSubeCol.SubVec(xCol, eCol)
+		xsubeCol := xsube.ColView(j).(*mat.VecDense)
+		xsubeCol.SubVec(xCol, eCol)
 	}
-	y, _, _ = l.forward(xsube, v)
+	y, _ = l.forward(xsube, v)
 	return
 }
 

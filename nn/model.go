@@ -4,10 +4,38 @@ import (
 	"pneuma/common"
 	"time"
 
-	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
 )
+
+type ModelSample struct {
+	Lays      []common.IHLayer
+	Optimizer common.IOptimizer
+}
+
+func (m *ModelSample) Lay(l common.IHLayer) {
+	m.Lays = append(m.Lays, l)
+}
+
+func (m *ModelSample) Opt(l common.IOptimizer) {
+	m.Optimizer = l
+}
+func (m *ModelSample) Use(cb func(*ModelSample)) {
+	cb(m)
+}
+
+type ModelBuilder struct {
+	Lays      []func() common.IHLayer
+	Optimizer func() common.IOptimizer
+}
+
+func (m *ModelBuilder) Lay(l func() common.IHLayer) {
+	m.Lays = append(m.Lays, l)
+}
+
+func (m *ModelBuilder) Opt(l func() common.IOptimizer) {
+	m.Optimizer = l
+}
 
 type Model struct {
 	layers []*layer
@@ -19,9 +47,14 @@ func NewModel() *Model {
 }
 
 func (m *Model) SetTarget(tar common.ITarget, param *LossParam) {
+	m.SetLoss(tar, param, nil)
+}
+
+func (m *Model) SetLoss(tar common.ITarget, param *LossParam, lossVal []float64) {
 	m.loss = &loss{
 		target: tar,
 		param:  param,
+		losses: lossVal,
 	}
 }
 
@@ -65,21 +98,35 @@ func (m *Model) SetLayer(idx int, opt common.IOptimizer, layers ...common.IHLaye
 	}
 }
 
-func (m *Model) Train(x, y *mat.Dense) {
-	a := x
+func (m *Model) Forward(x *mat.Dense) *mat.Dense {
 	for i := 0; i < len(m.layers); i++ {
-		a = m.layers[i].forward(a)
+		x = m.layers[i].forward(x)
 	}
-	if m.loss.check(a, y) {
-		return
-	}
-	da := m.loss.backward()
+	return x
+}
+
+func (m *Model) Backward(dx *mat.Dense) *mat.Dense {
 	for i := len(m.layers) - 1; i >= 0; i-- {
-		da = m.layers[i].backward(da)
+		dx = m.layers[i].backward(dx)
 	}
+	return dx
+}
+
+func (m *Model) Update() {
 	for i := 0; i < len(m.layers); i++ {
 		m.layers[i].update()
 	}
+}
+
+func (m *Model) Train(x, y *mat.Dense) *mat.Dense {
+	a := m.Forward(x)
+	m.loss.forward(a, y)
+	if m.loss.isDone() {
+		return nil
+	}
+	da := m.Backward(m.loss.backward())
+	m.Update()
+	return da
 }
 
 func (m *Model) Predict(x *mat.Dense) *mat.Dense {
@@ -92,38 +139,25 @@ func (m *Model) Predict(x *mat.Dense) *mat.Dense {
 
 func (m *Model) Test(x, y *mat.Dense) (loss, acc float64) {
 	pred := m.Predict(x)
-	loss = m.Loss(pred, y)
-	acc = m.Acc(pred, y)
+	loss = m.loss.target.Loss(pred, y)
+	acc = m.loss.target.Acc(pred, y)
 	return
 }
 
-func (m *Model) Acc(pred, targ *mat.Dense) float64 {
-	cnt := 0.0
-	_, batch := targ.Dims()
-	for j := 0; j < batch; j++ {
-		pred := mat.Col(nil, j, pred)
-		targ := mat.Col(nil, j, targ)
-		maxPredIdx := floats.MaxIdx(pred)
-		maxTargIdx := floats.MaxIdx(targ)
-		if maxPredIdx == maxTargIdx {
-			cnt++
-		}
+func (m *Model) Tests(x, y []*mat.Dense) (loss, acc float64) {
+	cnt := len(x)
+	for i := 0; i < cnt; i++ {
+		oneloss, oneacc := m.Test(x[i], y[i])
+		loss += oneloss
+		acc += oneacc
 	}
-	return cnt / float64(batch)
-}
-
-func (m *Model) Loss(pred, targ *mat.Dense) float64 {
-	return m.loss.target.Loss(pred, targ)
+	return loss / float64(cnt), acc / float64(cnt)
 }
 
 func (m *Model) LossPopMean() float64 {
 	mean := stat.Mean(m.loss.losses, nil)
 	m.loss.losses = nil
 	return mean
-}
-
-func (m *Model) LossMean() float64 {
-	return stat.Mean(m.loss.losses, nil)
 }
 
 func (m *Model) LossLatest() float64 {
@@ -145,24 +179,17 @@ func (m *Model) Predicts(predX []*mat.Dense) []*mat.Dense {
 	return predY
 }
 
-func (m *Model) Accs(preds, targs []*mat.Dense) float64 {
-	cnt := 0.0
-	acnt := 0.0
-	for i := 0; i < len(preds); i++ {
-		_, batch := targs[i].Dims()
-		acc := m.Acc(preds[i], targs[i])
-		cnt += acc * float64(batch)
-		acnt += float64(batch)
+func WithTimes(cnt int, do func(int) bool, oneTimes func(int, int)) {
+	for i := 0; i < cnt; i++ {
+		var stTime time.Time
+		if oneTimes != nil {
+			stTime = time.Now()
+		}
+		if !do(i) {
+			break
+		}
+		oneTimes(i, int(time.Since(stTime).Milliseconds()))
 	}
-	return cnt / acnt
-}
-
-func (m *Model) MeanLosses(preds, targs []*mat.Dense) float64 {
-	loss := 0.0
-	for i := 0; i < len(preds); i++ {
-		loss += m.Loss(preds[i], targs[i])
-	}
-	return loss / float64(len(preds))
 }
 
 func (m *Model) Trains(trainX, trainY []*mat.Dense) {
@@ -170,20 +197,9 @@ func (m *Model) Trains(trainX, trainY []*mat.Dense) {
 }
 
 func (m *Model) TrainTimes(trainX, trainY []*mat.Dense, oneTimes func(int, int)) {
-	var trainTimes int
-	for i := 0; i < len(trainX); i++ {
-		var stTime time.Time
-		if oneTimes != nil {
-			stTime = time.Now()
-		}
+	WithTimes(len(trainX), func(i int) bool {
 		x, y := trainX[i], trainY[i]
 		m.Train(x, y)
-		if oneTimes != nil {
-			oneTimes(trainTimes, int(time.Since(stTime).Milliseconds()))
-			trainTimes++
-		}
-		if m.IsDone() {
-			break
-		}
-	}
+		return !m.IsDone()
+	}, oneTimes)
 }

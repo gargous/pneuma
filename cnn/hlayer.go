@@ -95,7 +95,7 @@ func (l *HLayerConv) Optimize() (datas, deltas []mat.Matrix) {
 
 type HLayerDimBatchNorm struct {
 	*nn.HLayerBatchNorm
-	picker   *MatColPicker
+	picker   *MatPicker
 	batchDim int
 }
 
@@ -108,32 +108,33 @@ func NewHLayerConvBatchNorm(minstd, momentum float64) *HLayerDimBatchNorm {
 
 func (l *HLayerDimBatchNorm) InitSize(size []int) []int {
 	batchDim := (l.batchDim + len(size)) % len(size)
-	l.picker = NewMatColPicker(size, batchDim)
+	l.picker = NewMatPicker(size, batchDim)
+	l.picker.SetMotion(1, 1)
 	l.HLayerBatchNorm.InitSize([]int{size[batchDim]})
 	return size
 }
 
 func (l *HLayerDimBatchNorm) Predict(x *mat.Dense) (y *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newX := l.picker.Pick(x)
-	newXT := mat.DenseCopyOf(newX.T())
-	newYT := l.HLayerBatchNorm.Predict(newXT)
-	newY := mat.DenseCopyOf(newYT.T())
+	newY := l.HLayerBatchNorm.Predict(newX)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newY)
 }
 
 func (l *HLayerDimBatchNorm) Forward(x *mat.Dense) (y *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newX := l.picker.Pick(x)
-	newXT := mat.DenseCopyOf(newX.T())
-	newYT := l.HLayerBatchNorm.Forward(newXT)
-	newY := mat.DenseCopyOf(newYT.T())
+	newY := l.HLayerBatchNorm.Forward(newX)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newY)
 }
 
 func (l *HLayerDimBatchNorm) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	l.picker.SetMotion(0, 1)
 	newDy := l.picker.Pick(dy)
-	newDyT := mat.DenseCopyOf(newDy.T())
-	newDxT := l.HLayerBatchNorm.Backward(newDyT)
-	newDx := mat.DenseCopyOf(newDxT.T())
+	newDx := l.HLayerBatchNorm.Backward(newDy)
+	l.picker.SetMotion(1, 0)
 	return l.picker.Pick(newDx)
 }
 

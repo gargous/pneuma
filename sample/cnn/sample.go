@@ -63,10 +63,11 @@ func makeHandWrittenSample(trainSamp, testSamp []sample.NNSample, labelCnt int) 
 		if err != nil {
 			panic(err)
 		}
-		x, oneSize := data.ImgToVecData(img, 1)
 		if len(size) == 0 {
-			size = oneSize
+			b := img.Bounds().Size()
+			size = []int{b.Y, b.X, 1}
 		}
+		x := data.ImgToVecData(img, size)
 		trainSamp[i] = sample.NNSample{mat.NewVecDense(len(x), x), labels[labIndx]}
 		labIndx = (labIndx + 1) % len(labels)
 	}
@@ -94,7 +95,7 @@ func makeHandWrittenSample(trainSamp, testSamp []sample.NNSample, labelCnt int) 
 		if err != nil {
 			panic(err)
 		}
-		x, _ := data.ImgToVecData(img, 1)
+		x := data.ImgToVecData(img, size)
 		testSamp[i] = sample.NNSample{mat.NewVecDense(len(x), x), labels[labIndx]}
 		labIndx = (labIndx + 1) % len(labels)
 	}

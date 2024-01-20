@@ -58,6 +58,28 @@ func TestDenseCaltorCU2(t *testing.T) {
 	e.Close()
 }
 
+func TestDenseCaltorCU02(t *testing.T) {
+	e := NewEngine()
+	c := NewMatCaltor(e)
+	dst := mat.NewVecDense(3, nil)
+	a := mat.NewDense(3, 3, []float64{
+		1, 2, 3,
+		4, 5, 6,
+		7, 8, 9,
+	})
+	b := mat.NewVecDense(3, []float64{1, 1, 1})
+	tar := mat.NewVecDense(3, []float64{
+		6, 15, 24,
+	})
+	c.CopyTo(dst, a, b)
+	c.Mul(dst, a, b, false, false)
+	c.CopyBack(dst)
+	if !mat.Equal(dst, tar) {
+		t.Fatalf("mat Mul errorneed:\n%v\nbut:\n%v\n", mat.Formatted(tar), mat.Formatted(dst))
+	}
+	e.Close()
+}
+
 func TestDenseCaltorCU3(t *testing.T) {
 	e := NewEngine()
 	c := NewMatCaltor(e)

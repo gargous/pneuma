@@ -5,67 +5,86 @@ import (
 	"pneuma/nn"
 )
 
-type ModelMiniBuilder struct {
-	lays []common.IHLayer
-	opt  common.IOptimizer
+type ModelSizeBuilder struct {
+	Size    []int
+	Uniques []*nn.ModelSample
+	*nn.ModelBuilder
 }
 
-func (m *ModelMiniBuilder) Lay(l common.IHLayer) {
-	m.lays = append(m.lays, l)
+func NewModelSizeBuilder(size []int) *ModelSizeBuilder {
+	return &ModelSizeBuilder{
+		Size:         size,
+		ModelBuilder: &nn.ModelBuilder{},
+	}
 }
 
-func (m *ModelMiniBuilder) Opt(l common.IOptimizer) {
-	m.opt = l
+func (b *ModelSizeBuilder) One() *nn.ModelSample {
+	s := &nn.ModelSample{}
+	b.Uniques = append(b.Uniques, s)
+	return s
 }
 
-func (m *ModelMiniBuilder) Build(cb func(*ModelMiniBuilder)) {
-	cb(m)
+func (b *ModelSizeBuilder) BulldWithSize(model *nn.Model, cb func(initer common.IHLayerSizeIniter, i int, size []int) []int) []int {
+	size := b.Size
+	for i, conv := range b.Uniques {
+		for _, layFun := range b.Lays {
+			conv.Lays = append(conv.Lays, layFun())
+		}
+		for _, lay := range conv.Lays {
+			initer, ok := lay.(common.IHLayerSizeIniter)
+			if ok {
+				size = cb(initer, i, size)
+			}
+		}
+		if conv.Optimizer == nil {
+			model.AddLayer(b.Optimizer(), conv.Lays...)
+		} else {
+			model.AddLayer(conv.Optimizer, conv.Lays...)
+		}
+	}
+	return size
+}
+
+func (b *ModelSizeBuilder) Bulld(model *nn.Model) []int {
+	return b.BulldWithSize(model, func(initer common.IHLayerSizeIniter, i int, size []int) []int {
+		return initer.InitSize(size)
+	})
 }
 
 type ModelBuilder struct {
-	csize []int
-	convs []*ModelMiniBuilder
-	clays []func() common.IHLayer
-	copt  func() common.IOptimizer
-	fsize []int
-	fulls []*ModelMiniBuilder
-	flays []func() common.IHLayer
-	fopt  func() common.IOptimizer
-	tar   common.ITarget
+	c   *ModelSizeBuilder
+	f   *ModelSizeBuilder
+	tar common.ITarget
 }
 
 func NewModelBuilder(csize, fsize []int) *ModelBuilder {
 	return &ModelBuilder{
-		csize: csize,
-		fsize: fsize,
+		c: NewModelSizeBuilder(csize),
+		f: NewModelSizeBuilder(fsize),
 	}
 }
-func (m *ModelBuilder) F() *ModelMiniBuilder {
-	b := &ModelMiniBuilder{}
-	m.fulls = append(m.fulls, b)
-	return b
+func (m *ModelBuilder) F(cb func(*nn.ModelSample)) {
+	m.f.One().Use(cb)
 }
 
-func (m *ModelBuilder) C() *ModelMiniBuilder {
-	b := &ModelMiniBuilder{}
-	m.convs = append(m.convs, b)
-	return b
+func (m *ModelBuilder) C(cb func(*nn.ModelSample)) {
+	m.c.One().Use(cb)
 }
 
 func (m *ModelBuilder) CLay(l func() common.IHLayer) {
-	m.clays = append(m.clays, l)
+	m.c.Lay(l)
 }
 
 func (m *ModelBuilder) FLay(l func() common.IHLayer) {
-	m.flays = append(m.flays, l)
+	m.f.Lay(l)
 }
 
 func (m *ModelBuilder) COpt(l func() common.IOptimizer) {
-	m.copt = l
+	m.c.Opt(l)
 }
 
 func (m *ModelBuilder) FOpt(l func() common.IOptimizer) {
-	m.fopt = l
+	m.f.Opt(l)
 }
 
 func (m *ModelBuilder) Tar(l common.ITarget) {
@@ -74,45 +93,17 @@ func (m *ModelBuilder) Tar(l common.ITarget) {
 
 func (m *ModelBuilder) Build() *nn.Model {
 	model := nn.NewModel()
-	csize := m.csize
-	for _, conv := range m.convs {
-		for _, layFun := range m.clays {
-			conv.lays = append(conv.lays, layFun())
-		}
-		for _, lay := range conv.lays {
-			initer, ok := lay.(common.IHLayerSizeIniter)
-			if ok {
-				csize = initer.InitSize(csize)
-			}
-		}
-		if conv.opt == nil {
-			model.AddLayer(m.copt(), conv.lays...)
-		} else {
-			model.AddLayer(conv.opt, conv.lays...)
-		}
-	}
-	fsize := append([]int{common.IntsProd(csize)}, m.fsize...)
-	rest := len(m.fsize) - len(m.fulls)
+	csize := m.c.Bulld(model)
+	fsize := append([]int{common.IntsProd(csize)}, m.f.Size...)
+	rest := len(m.f.Size) - len(m.f.Uniques)
 	for i := 0; i < rest; i++ {
-		m.fulls = append(m.fulls, &ModelMiniBuilder{})
+		m.f.Uniques = append(m.f.Uniques, &nn.ModelSample{})
 	}
-	for i, full := range m.fulls {
-		size := []int{fsize[i+1], fsize[i]}
-		for _, layFun := range m.flays {
-			full.lays = append(full.lays, layFun())
-		}
-		for _, lay := range full.lays {
-			initer, ok := lay.(common.IHLayerSizeIniter)
-			if ok {
-				initer.InitSize(size)
-			}
-		}
-		if full.opt == nil {
-			model.AddLayer(m.fopt(), full.lays...)
-		} else {
-			model.AddLayer(full.opt, full.lays...)
-		}
-	}
+	m.f.BulldWithSize(model, func(initer common.IHLayerSizeIniter, i int, size []int) []int {
+		size = []int{fsize[i+1], fsize[i]}
+		initer.InitSize(size)
+		return size
+	})
 	model.SetTarget(m.tar, nn.NewLossParam())
 	return model
 }
