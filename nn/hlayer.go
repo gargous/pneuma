@@ -245,6 +245,34 @@ func (l *HLayerSigmoid) Backward(dy *mat.Dense) (dx *mat.Dense) {
 	return
 }
 
+type HLayerTanh struct {
+	y *mat.Dense
+}
+
+func NewHLayerTanh() *HLayerTanh {
+	return &HLayerTanh{}
+}
+
+func (l *HLayerTanh) Forward(x *mat.Dense) (y *mat.Dense) {
+	r, c := x.Dims()
+	y = mat.NewDense(r, c, nil)
+	y.Apply(func(i, j int, v float64) float64 {
+		exp := math.Exp(v)
+		expi := 1.0 / exp
+		return (exp - expi) / (exp + expi)
+	}, x)
+	return
+}
+
+func (l *HLayerTanh) Backward(dy *mat.Dense) (dx *mat.Dense) {
+	r, c := dy.Dims()
+	dx = mat.NewDense(r, c, nil)
+	dx.Apply(func(i, j int, v float64) float64 {
+		return 1 - v*v
+	}, l.y)
+	return
+}
+
 type HLayerRelu struct {
 	phi *mat.Dense
 }
